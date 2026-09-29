@@ -265,17 +265,26 @@ app.get('/api/health', async () => {
   return { status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() };
 });
 
-const PORT = 3000;
-const HOST = '0.0.0.0';
+// Export Fastify handler for Vercel Serverless Functions
+export default async function handler(req, res) {
+  await app.ready();
+  app.server.emit('request', req, res);
+}
 
-try {
-  await app.listen({ port: PORT, host: HOST });
-  console.log(`\n======================================================`);
-  console.log(`  🌪️  WINDY 3D — Servidor Ativo com Sucesso!`);
-  console.log(`  🌐  Acesse no seu navegador: http://localhost:${PORT}`);
-  console.log(`  📡  API Brasil Clima: http://localhost:${PORT}/api/weather/brazil`);
-  console.log(`======================================================\n`);
-} catch (err) {
-  app.log.error(err);
-  process.exit(1);
+// Start standalone HTTP server when running locally
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 3000;
+  const HOST = '0.0.0.0';
+
+  try {
+    await app.listen({ port: PORT, host: HOST });
+    console.log(`\n======================================================`);
+    console.log(`  🌪️  WINDY 3D — Servidor Ativo com Sucesso!`);
+    console.log(`  🌐  Acesse no seu navegador: http://localhost:${PORT}`);
+    console.log(`  📡  API Brasil Clima: http://localhost:${PORT}/api/weather/brazil`);
+    console.log(`======================================================\n`);
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
 }
