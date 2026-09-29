@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Windy 3D — Visualizador Climático Minimalista</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Import map for modern Three.js modules -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://esm.sh/three@0.170.0",
+        "three/addons/": "https://esm.sh/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- 3D WebGL Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- 2D Overlay UI Layer -->
+  <div id="ui-container">
+
+    <!-- Top Navigation Header -->
+    <header class="top-bar">
+      <div class="brand-group">
+        <div class="logo">
+          <span class="logo-icon">🌪️</span>
+          <span class="logo-text">windy<span class="logo-badge">3D</span></span>
+        </div>
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="city-search" placeholder="Buscar cidade no Brasil (ex: São Paulo, Manaus)..." autocomplete="off">
+          <button id="btn-locate" title="Minha Localização">🎯</button>
+        </div>
+      </div>
+
+      <div class="top-actions">
+        <div class="model-badge">
+          <span class="model-name">ECMWF</span>
+          <span class="model-res">9km</span>
+        </div>
+        <div class="status-indicator" id="status-bar">
+          <span class="status-dot"></span>
+          <span id="status-text">Conectando aos satélites...</span>
+        </div>
+        <button class="btn-apple-pill btn-secondary" id="btn-reset-cam">Restaurar Visão</button>
+      </div>
+    </header>
+
+    <!-- Right Lateral Sidebar (Windy.com Style Weather Layers) -->
+    <button class="btn-open-sidebar" id="btn-open-sidebar" title="Abrir Camadas 3D">
+      <span>🌦️</span> Camadas
+    </button>
+
+    <aside class="layers-sidebar" id="layers-sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Camadas 3D</span>
+        <button class="btn-sidebar-collapse" id="btn-collapse-sidebar" title="Recolher painel">✕</button>
+      </div>
+
+      <div class="layers-list">
+        <button class="layer-item active" data-layer="wind">
+          <div class="layer-icon-box wind-icon">
+            <span>💨</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Vento</span>
+            <span class="layer-sub">Fluxo e rajadas em 3D</span>
+          </div>
+        </button>
+
+        <button class="layer-item" data-layer="rain">
+          <div class="layer-icon-box rain-icon">
+            <span>🌧️</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Chuva & Trovão</span>
+            <span class="layer-sub">Precipitação volumétrica</span>
+          </div>
+        </button>
+
+        <button class="layer-item" data-layer="lightning">
+          <div class="layer-icon-box lightning-icon">
+            <span>⛈️</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Raios</span>
+            <span class="layer-sub">Descargas atmosféricas</span>
+          </div>
+        </button>
+
+        <button class="layer-item" data-layer="temperature">
+          <div class="layer-icon-box temp-icon">
+            <span>🌡️</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Temperatura</span>
+            <span class="layer-sub">Heatmap térmico do relevo</span>
+          </div>
+        </button>
+
+        <button class="layer-item" data-layer="clouds">
+          <div class="layer-icon-box clouds-icon">
+            <span>☁️</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Nuvens</span>
+            <span class="layer-sub">Camadas de nebulosidade</span>
+          </div>
+        </button>
+
+        <button class="layer-item" data-layer="snow">
+          <div class="layer-icon-box snow-icon">
+            <span>❄️</span>
+          </div>
+          <div class="layer-info">
+            <span class="layer-name">Neve</span>
+            <span class="layer-sub">Nevadas & geadas no Sul</span>
+          </div>
+        </button>
+      </div>
+
+      <!-- Quick Toggles -->
+      <div class="sidebar-toggles">
+        <div class="sidebar-toggles-header">
+          <span class="sidebar-subtitle">Opções do Mapa</span>
+        </div>
+        <div class="toggle-row">
+          <span>Heatmap do Vento</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-wind-heatmap" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Radar de Chuva</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-rain-heatmap" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Prédios 3D</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-cities" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Florestas 3D</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-trees" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Limites dos Estados</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-states" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Frentes Sinóticas</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-fronts" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Rios Voadores (Amazônia)</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-flying-rivers" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Isóbaras (Pressão)</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-isobars" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Grandes Rios 3D</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-rivers" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <span>Rotação Suave</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-autorotate">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </aside>
+
+    <!-- City Weather Card (Slide-in Detail Card) -->
+    <div id="city-card" class="city-card-hidden">
+      <button class="btn-close-card" id="btn-close-card">×</button>
+      <div class="city-card-header">
+        <span class="city-region-badge" id="card-region">Sudeste</span>
+        <h2 id="card-city-name">São Paulo, SP</h2>
+        <span class="city-elev-text" id="card-elevation">Altitude: 760m</span>
+      </div>
+
+      <div class="city-weather-main">
+        <div class="temp-big">
+          <span id="card-temp">16</span><span class="unit">°C</span>
+        </div>
+        <div class="weather-icon-big" id="card-weather-icon">⛅</div>
+      </div>
+
+      <p class="weather-desc" id="card-condition">Parcialmente nublado</p>
+
+      <div class="weather-metrics-grid">
+        <div class="metric-item">
+          <span class="metric-label">Vento</span>
+          <span class="metric-value" id="card-wind">14 km/h</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Chuva</span>
+          <span class="metric-value" id="card-rain">0.0 mm</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Umidade</span>
+          <span class="metric-value" id="card-humidity">72%</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Nuvens</span>
+          <span class="metric-value" id="card-clouds">65%</span>
+        </div>
+      </div>
+
+      <!-- 24h Temperature Trend Sparkline -->
+      <div class="city-sparkline-container">
+        <div class="sparkline-header">
+          <span>Tendência Térmica (Próximas 24h)</span>
+          <span id="sparkline-range">--° / --°</span>
+        </div>
+        <canvas id="card-sparkline" width="266" height="52"></canvas>
+      </div>
+    </div>
+
+    <!-- Bottom Controls & Dynamic Legend Bar (Windy.com Style) -->
+    <footer class="bottom-bar" id="bottom-bar">
+      <div class="bottom-bar-left">
+        <!-- Player Timeline Controls -->
+        <div class="timeline-controls">
+          <button class="play-btn" id="btn-play" title="Animar Linha do Tempo">▶</button>
+          <div class="timeline-track">
+            <span class="timeline-time-badge" id="timeline-time">AGORA</span>
+            <div class="timeline-days">
+              <span class="day active" data-hour="0">Hoje</span>
+              <span class="day" data-hour="6">+6h</span>
+              <span class="day" data-hour="12">+12h</span>
+              <span class="day" data-hour="24">+24h</span>
+              <span class="day" data-hour="48">+48h</span>
+              <span class="day" data-hour="72">+72h</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Color Scale Legend Bar -->
+        <div class="legend-container" id="legend-container">
+          <span class="legend-unit" id="legend-unit">km/h</span>
+          <div class="legend-bar" id="legend-bar">
+            <!-- Filled dynamically by JavaScript based on active layer -->
+          </div>
+        </div>
+      </div>
+
+      <div class="bottom-bar-right">
+        <!-- Model Switcher (Windy Style: ECMWF vs GFS) -->
+        <div class="model-switcher" id="model-switcher">
+          <button class="model-btn active" data-model="ecmwf" title="Modelo Europeu ECMWF IFS (9km)">ECMWF <span>9km</span></button>
+          <button class="model-btn" data-model="gfs" title="Modelo Americano NOAA GFS (22km)">GFS <span>22km</span></button>
+        </div>
+
+        <!-- View & Zoom Buttons -->
+        <div class="view-controls">
+          <button class="view-btn" id="btn-zoom-in" title="Aproximar">+</button>
+          <button class="view-btn" id="btn-zoom-out" title="Afastar">−</button>
+          <button class="view-btn is-active" id="btn-3d" title="Perspectiva 3D">3D</button>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Map Custom Picker Crosshair -->
+    <div id="map-picker" class="map-picker-hidden">
+      <div class="picker-crosshair"></div>
+      <div class="picker-popup" id="picker-popup">
+        <div class="picker-row"><span class="picker-icon" id="picker-icon-1">🌡️</span> <span id="picker-val-1">--°</span></div>
+        <div class="picker-row"><span class="picker-icon" id="picker-icon-2">💨</span> <span id="picker-val-2">-- km/h</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Main JavaScript Bundle -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
