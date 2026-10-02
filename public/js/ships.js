@@ -18,6 +18,9 @@ export class ShipTrafficSystem {
     this.scene.add(this.group);
 
     this.vessels = new Map(); // mmsi -> vesselState
+    this.vesselTags = new Map(); // mmsi -> { element, speedEl, lastDisplay }
+    this.uiContainer = document.getElementById('ui-container');
+    this._tagProjectVec = new THREE.Vector3();
     this.raycastHitboxes = [];
     this.hoveredVessel = null;
     this.selectedVessel = null;
@@ -33,36 +36,55 @@ export class ShipTrafficSystem {
     }, 20000); // 20s live sync
   }
 
+  getVesselTypeColor(type) {
+    const t = (type || '').toLowerCase();
+    if (t.includes('container') || t.includes('cargo') || t.includes('carga')) return 0x10b981; // Emerald Green
+    if (t.includes('tanker') || t.includes('petroleiro') || t.includes('gas')) return 0xf43f5e; // Crimson Red
+    if (t.includes('bulk') || t.includes('graneleiro')) return 0xfbbf24; // Amber Yellow
+    if (t.includes('tug') || t.includes('rebocador') || t.includes('apoio')) return 0xf97316; // Vivid Orange
+    if (t.includes('passenger') || t.includes('cruzeiro')) return 0x06b6d4; // Cyan
+    return 0x38bdf8; // Sky Blue
+  }
+
   initSharedResources() {
-    // 1. Invisible Raycast Hitbox
-    this.hitboxGeo = new THREE.SphereGeometry(1.15, 8, 8);
+    // 1. Invisible Raycast Hitbox (Generous sphere for easy clicking)
+    this.hitboxGeo = new THREE.SphereGeometry(1.6, 8, 8);
     this.hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
 
     // 2. Selection / Hover Ring Material & Geo
-    this.selectionRingGeo = new THREE.RingGeometry(0.7, 0.95, 24);
+    this.selectionRingGeo = new THREE.RingGeometry(0.85, 1.25, 24);
     this.selectionRingGeo.rotateX(-Math.PI / 2);
     this.selectionRingMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
       transparent: true,
       opacity: 0.85,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      depthTest: false
     });
 
     // 3. Navigation Lights (Port Red, Starboard Green, Stern White)
-    this.navLightGeo = new THREE.SphereGeometry(0.04, 6, 6);
-    this.redLightMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-    this.greenLightMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
-    this.whiteLightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    this.navLightGeo = new THREE.SphereGeometry(0.06, 6, 6);
+    this.redLightMat = new THREE.MeshBasicMaterial({ color: 0xef4444, depthTest: false });
+    this.greenLightMat = new THREE.MeshBasicMaterial({ color: 0x22c55e, depthTest: false });
+    this.whiteLightMat = new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false });
 
     // 4. Wake Material (Translucent foaming V-wave on water surface)
     this.wakeMat = new THREE.MeshBasicMaterial({
-      color: 0xcfe8ff,
+      color: 0xe0f2fe,
       transparent: true,
-      opacity: 0.38,
+      opacity: 0.55,
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false
     });
+
+    // 5. 3D Directional AIS Chevron (Beacon visible from distance / overview)
+    this.chevronGeo = new THREE.ConeGeometry(0.42, 0.85, 4);
+    this.chevronGeo.rotateX(Math.PI / 2); // Point forward (-Z)
+    this.chevronGeo.rotateY(Math.PI / 4);
+
+    this.beaconRingGeo = new THREE.RingGeometry(0.42, 0.65, 16);
+    this.beaconRingGeo.rotateX(-Math.PI / 2);
   }
 
   async fetchLiveVessels() {
@@ -79,6 +101,9 @@ export class ShipTrafficSystem {
   }
 
   syncVessels(vesselList) {
+    if (!this.uiContainer) {
+      this.uiContainer = document.getElementById('ui-container');
+    }
     const activeMmsis = new Set();
 
     vesselList.forEach(rawVessel => {
@@ -95,18 +120,57 @@ export class ShipTrafficSystem {
         existing.heading = rawVessel.heading;
         existing.speed = rawVessel.speed;
         existing.status = rawVessel.status;
+
+        // Update tag speed
+        const tagObj = this.vesselTags.get(rawVessel.mmsi);
+        if (tagObj && tagObj.speedEl) {
+          tagObj.speedEl.textContent = `${rawVessel.speed.toFixed(1)} kn`;
+        }
       } else {
         // Create new 3D vessel object
         this.createVesselMesh(rawVessel);
       }
+
+      // Create floating 3D/2D vessel tag on UI container if not present
+      if (!this.vesselTags.has(rawVessel.mmsi) && this.uiContainer) {
+        const typeColorHex = '#' + this.getVesselTypeColor(rawVessel.type).toString(16).padStart(6, '0');
+        const tag = document.createElement('div');
+        tag.className = 'vessel-scene-tag';
+        tag.innerHTML = `
+          <span class="vessel-tag-type-dot" style="background:${typeColorHex}; box-shadow: 0 0 6px ${typeColorHex};"></span>
+          <span class="vessel-tag-name">${rawVessel.name}</span>
+          <span class="vessel-tag-speed">${rawVessel.speed.toFixed(1)} kn</span>
+        `;
+        tag.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.selectVesselByMmsi(rawVessel.mmsi);
+        });
+        tag.addEventListener('mouseenter', (e) => {
+          this.setHoveredVessel(rawVessel.mmsi, { x: e.clientX, y: e.clientY });
+        });
+        tag.addEventListener('mouseleave', () => {
+          this.setHoveredVessel(null, null);
+        });
+
+        this.uiContainer.appendChild(tag);
+        this.vesselTags.set(rawVessel.mmsi, {
+          element: tag,
+          speedEl: tag.querySelector('.vessel-tag-speed'),
+          lastDisplay: 'flex'
+        });
+      }
     });
 
-    // Remove obsolete vessels
+    // Remove obsolete vessels and their tags
     for (const [mmsi, vessel] of this.vessels.entries()) {
       if (!activeMmsis.has(mmsi)) {
         this.group.remove(vessel.root);
         const idx = this.raycastHitboxes.indexOf(vessel.hitbox);
         if (idx !== -1) this.raycastHitboxes.splice(idx, 1);
+        if (this.vesselTags.has(mmsi)) {
+          this.vesselTags.get(mmsi).element.remove();
+          this.vesselTags.delete(mmsi);
+        }
         this.vessels.delete(mmsi);
       }
     }
@@ -124,7 +188,8 @@ export class ShipTrafficSystem {
 
     const { x, z } = latLonTo3D(vessel.lat, vessel.lon);
     const groundY = this.terrain ? this.terrain.getElevationAt(x, z) : 0;
-    const waterY = (groundY <= 0.02) ? 0.025 : groundY + 0.035;
+    // Elevate safely above the 0.050 weather heatmap surface
+    const waterY = (groundY <= 0.02) ? 0.080 : groundY + 0.075;
 
     root.position.set(x, waterY, z);
 
@@ -133,6 +198,32 @@ export class ShipTrafficSystem {
     this.buildShipGeometry(modelGroup, vessel);
     root.add(modelGroup);
 
+    // 3D Directional AIS Chevron (Forward-pointing arrow in vessel's heading)
+    const typeColor = this.getVesselTypeColor(vessel.type);
+    const chevronMat = new THREE.MeshBasicMaterial({
+      color: typeColor,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false
+    });
+    const chevron = new THREE.Mesh(this.chevronGeo, chevronMat);
+    chevron.position.set(0, 0.65, 0);
+    chevron.renderOrder = 9;
+    root.add(chevron);
+
+    // Glowing AIS Beacon Ring around the chevron
+    const beaconRingMat = new THREE.MeshBasicMaterial({
+      color: typeColor,
+      transparent: true,
+      opacity: 0.70,
+      side: THREE.DoubleSide,
+      depthTest: false
+    });
+    const beaconRing = new THREE.Mesh(this.beaconRingGeo, beaconRingMat);
+    beaconRing.position.set(0, 0.15, 0);
+    beaconRing.renderOrder = 8;
+    root.add(beaconRing);
+
     // Create Wake Ribbon trailing behind
     const wakeMesh = this.createWakeMesh(vessel);
     root.add(wakeMesh);
@@ -140,12 +231,13 @@ export class ShipTrafficSystem {
     // Create Selection / Focus Ring (initially hidden)
     const ring = new THREE.Mesh(this.selectionRingGeo, this.selectionRingMat.clone());
     ring.position.y = 0.01;
+    ring.renderOrder = 8;
     ring.visible = false;
     root.add(ring);
 
     // Hitbox for raycasting
     const hitbox = new THREE.Mesh(this.hitboxGeo, this.hitboxMat);
-    hitbox.position.y = 0.35;
+    hitbox.position.y = 0.45;
     hitbox.userData = { vessel, mmsi: vessel.mmsi };
     root.add(hitbox);
     this.raycastHitboxes.push(hitbox);
@@ -159,6 +251,9 @@ export class ShipTrafficSystem {
       data: vessel,
       root,
       modelGroup,
+      chevron,
+      beaconRing,
+      typeColor,
       wakeMesh,
       ring,
       hitbox,
@@ -374,6 +469,14 @@ export class ShipTrafficSystem {
     const sternLight = new THREE.Mesh(this.navLightGeo, this.whiteLightMat);
     sternLight.position.set(0, height * 1.8, length * 0.38);
     container.add(sternLight);
+
+    // Ensure all 3D ship components render above water & weather layers
+    container.traverse(c => {
+      if (c.isMesh) {
+        c.renderOrder = 8;
+        if (c.material) c.material.depthWrite = true;
+      }
+    });
   }
 
   createWakeMesh(vessel) {
@@ -402,18 +505,24 @@ export class ShipTrafficSystem {
     geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 
     const mesh = new THREE.Mesh(geom, this.wakeMat);
-    mesh.position.y = 0.005;
+    mesh.position.y = -0.004;
+    mesh.renderOrder = 7;
     mesh.visible = vessel.speed > 1.0;
     return mesh;
   }
 
-  update(delta, time) {
+  update(delta, time, camera = null) {
     if (!this.visible) return;
 
     // 1 Nautical Mile in 3D scene units:
     // Latitude span = 40 degrees mapped to 140 units -> 3.5 units per degree.
     // 1 NM = 1/60th of a degree = 3.5 / 60 units.
     const UNITS_PER_NM = 3.5 / 60;
+
+    if (!this._tagProjectVec) this._tagProjectVec = new THREE.Vector3();
+    const tempV = this._tagProjectVec;
+    const widthHalf = window.innerWidth / 2;
+    const heightHalf = window.innerHeight / 2;
 
     for (const [mmsi, v] of this.vessels.entries()) {
       // 1. Advance along heading smoothly based on speed (knots = NM / hour)
@@ -436,9 +545,9 @@ export class ShipTrafficSystem {
       v.currentX += (v.targetX - v.currentX) * 0.1;
       v.currentZ += (v.targetZ - v.currentZ) * 0.1;
 
-      // Height adjustment based on terrain underneath
+      // 2. Height adjustment: firmly above ocean and weather heatmaps (which sit at 0.050)
       const groundY = this.terrain ? this.terrain.getElevationAt(v.currentX, v.currentZ) : 0;
-      const baseWaterY = (groundY <= 0.02) ? 0.025 : groundY + 0.035;
+      const baseWaterY = (groundY <= 0.02) ? 0.080 : groundY + 0.075;
 
       // Realistic hydrodynamic ocean roll and pitch
       const bobY = Math.sin(time * 2.2 + mmsi) * 0.008;
@@ -453,20 +562,70 @@ export class ShipTrafficSystem {
       const targetRad = -(v.heading * Math.PI) / 180;
       v.root.rotation.y += (targetRad - v.root.rotation.y) * 0.08;
 
-      // Dynamic Wake pulsation
+      // 3. Camera distance & Adaptive Scaling (Zoom Visibility)
+      const camDist = camera ? camera.position.distanceTo(v.root.position) : 80;
+      // Close zoom (camDist < 30): scale = 1.3 - 1.8x
+      // Mid zoom (camDist 30 - 70): scale = 2.0 - 3.8x
+      // Far zoom (camDist > 70): scale = 4.0 - 5.2x
+      const scale = Math.max(1.3, Math.min(5.2, camDist * 0.050));
+      v.modelGroup.scale.set(scale, scale, scale);
+      v.hitbox.scale.set(scale, scale, scale);
+
+      // 4. Dynamic Wake pulsation
       if (v.wakeMesh) {
         const isMoving = v.speed > 1.0;
         v.wakeMesh.visible = isMoving;
         if (isMoving) {
           const wakePulse = 0.95 + Math.sin(time * 3.5 + mmsi) * 0.15;
-          v.wakeMesh.scale.set(wakePulse, 1, wakePulse);
+          v.wakeMesh.scale.set(scale * wakePulse, 1, scale * wakePulse);
         }
       }
 
-      // Selection ring pulse
+      // 5. Directional Chevron & Beacon Visibility
+      if (v.chevron && v.beaconRing) {
+        // High-visibility beacon when zoomed out; smoothly fades to highlight detailed 3D hull when zoomed in
+        const chevronOpacity = Math.max(0.15, Math.min(1.0, (camDist - 25) / 45));
+        v.chevron.material.opacity = chevronOpacity;
+        v.beaconRing.material.opacity = chevronOpacity * 0.75;
+        const ringPulse = 1.0 + Math.sin(time * 3.2 + mmsi) * 0.22;
+        v.beaconRing.scale.set(ringPulse, ringPulse, ringPulse);
+      }
+
+      // 6. Selection ring pulse
       if (v.ring && v.ring.visible) {
-        const ringPulse = 1.0 + Math.sin(time * 4.0) * 0.12;
-        v.ring.scale.set(ringPulse, ringPulse, ringPulse);
+        const ringPulse = 1.0 + Math.sin(time * 4.0) * 0.15;
+        v.ring.scale.set(scale * ringPulse, scale * ringPulse, scale * ringPulse);
+      }
+
+      // 7. Floating 2D/3D Vessel Scene Tag (Active when zoomed into a region: camDist < 95)
+      const tagObj = this.vesselTags ? this.vesselTags.get(mmsi) : null;
+      if (tagObj) {
+        const shouldShow = this.visible && camDist < 95 && !!camera;
+        if (shouldShow) {
+          tempV.set(v.currentX, v.root.position.y + 0.85 * scale, v.currentZ);
+          tempV.project(camera);
+
+          // Within screen frustum
+          if (tempV.z < 1 && tempV.x >= -1.1 && tempV.x <= 1.1 && tempV.y >= -1.1 && tempV.y <= 1.1) {
+            const sx = (tempV.x * widthHalf) + widthHalf;
+            const sy = -(tempV.y * heightHalf) + heightHalf;
+            tagObj.element.style.transform = `translate3d(${sx}px, ${sy}px, 0)`;
+            if (tagObj.lastDisplay !== 'flex') {
+              tagObj.element.style.display = 'flex';
+              tagObj.lastDisplay = 'flex';
+            }
+          } else {
+            if (tagObj.lastDisplay !== 'none') {
+              tagObj.element.style.display = 'none';
+              tagObj.lastDisplay = 'none';
+            }
+          }
+        } else {
+          if (tagObj.lastDisplay !== 'none') {
+            tagObj.element.style.display = 'none';
+            tagObj.lastDisplay = 'none';
+          }
+        }
       }
     }
   }
@@ -474,6 +633,11 @@ export class ShipTrafficSystem {
   setVisible(visible) {
     this.visible = visible;
     this.group.visible = visible;
+    if (this.vesselTags) {
+      this.vesselTags.forEach(t => {
+        t.element.style.display = visible ? t.lastDisplay : 'none';
+      });
+    }
     if (!visible) {
       if (this.hoveredVessel) this.setHoveredVessel(null, null);
       if (this.selectedVessel) this.selectVesselByMmsi(null);

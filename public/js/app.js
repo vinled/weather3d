@@ -1105,7 +1105,7 @@ class Windy3DApp {
     if (this.rivers) this.rivers.update(elapsedTime);
     if (this.isobars) this.isobars.update(elapsedTime);
     if (this.flyingRivers) this.flyingRivers.update(elapsedTime, delta);
-    if (this.ships) this.ships.update(delta, elapsedTime);
+    if (this.ships) this.ships.update(delta, elapsedTime, this.camera);
 
     // Update floating HTML tags
     this.updateCityHTMLTags();
