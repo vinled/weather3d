@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch server.js",
     "start": "node server.js",
+    "test": "node test_ships.js",
     "sync": "git add . && git commit -m \"chore: update weather3d\" && git push origin main"
   },
   "dependencies": {

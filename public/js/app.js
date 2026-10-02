@@ -9,6 +9,7 @@ import { WeatherFrontsSystem } from './weather/weatherFronts.js';
 import { BrazilRiversSystem } from './rivers.js';
 import { IsobarsSystem } from './weather/isobars.js';
 import { FlyingRiversSystem } from './weather/flyingRivers.js';
+import { ShipTrafficSystem } from './ships.js';
 import { latLonTo3D, threeDToLatLon } from './utils/geo.js';
 import { BRAZIL_CITIES } from './data/brazilData.js';
 
@@ -29,6 +30,7 @@ class Windy3DApp {
     this.rivers = null;
     this.isobars = null;
     this.flyingRivers = null;
+    this.ships = null;
 
     this.clock = new THREE.Clock();
     this.cityTags = [];
@@ -154,6 +156,14 @@ class Windy3DApp {
 
     // 10. Create 3D HTML City Tag overlays for all cities
     this.createCityHTMLTags();
+
+    // 11. MarineTraffic & AIS Live Ship Traffic 3D System
+    this.ships = new ShipTrafficSystem(
+      this.scene,
+      this.terrain,
+      (vessel) => this.openVesselCard(vessel),
+      (vessel, screenPos) => this.updateShipHoverTooltip(vessel, screenPos)
+    );
   }
 
   createCityHTMLTags() {
@@ -267,20 +277,39 @@ class Windy3DApp {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
 
+    let isPointerDragging = false;
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
       this.pointerDownPos = { x: e.clientX, y: e.clientY };
+      isPointerDragging = false;
     });
 
     this.renderer.domElement.addEventListener('pointerup', (e) => {
       if (this.pointerDownPos) {
         const dx = Math.abs(e.clientX - this.pointerDownPos.x);
         const dy = Math.abs(e.clientY - this.pointerDownPos.y);
+        this.pointerDownPos = null;
         if (dx > 5 || dy > 5) return; // User was dragging/orbiting
       }
+      isPointerDragging = false;
 
       mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
       mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
       raycaster.setFromCamera(mouse, this.camera);
+
+      // Check click on ships (MarineTraffic AIS)
+      if (this.ships && this.ships.visible && this.ships.raycastHitboxes.length > 0) {
+        const shipHits = raycaster.intersectObjects(this.ships.raycastHitboxes, false);
+        if (shipHits.length > 0) {
+          const hitShip = shipHits[0].object;
+          const vessel = hitShip.userData.vessel;
+          if (vessel) {
+            this.ships.selectVesselByMmsi(vessel.mmsi);
+            document.getElementById('map-picker').classList.add('map-picker-hidden');
+            this.picker3DPos = null;
+            return;
+          }
+        }
+      }
 
       const pins = this.cities.cityMarkers.map(m => m.pin);
       const intersects = raycaster.intersectObjects(pins, true);
@@ -304,6 +333,50 @@ class Windy3DApp {
           this.picker3DPos = null;
         }
       }
+    });
+
+    // Pointer hover over ships for telemetry mini-tooltip
+    this.renderer.domElement.addEventListener('pointermove', (e) => {
+      if (this.pointerDownPos) {
+        const dx = Math.abs(e.clientX - this.pointerDownPos.x);
+        const dy = Math.abs(e.clientY - this.pointerDownPos.y);
+        if (dx > 4 || dy > 4) {
+          isPointerDragging = true;
+          this.updateShipHoverTooltip(null, null);
+          if (this.ships) this.ships.setHoveredVessel(null, null);
+          return;
+        }
+      }
+      if (isPointerDragging) return;
+
+      if (!this.ships || !this.ships.visible || this.ships.raycastHitboxes.length === 0) {
+        this.updateShipHoverTooltip(null, null);
+        return;
+      }
+
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, this.camera);
+
+      const shipHits = raycaster.intersectObjects(this.ships.raycastHitboxes, false);
+      if (shipHits.length > 0) {
+        const hitShip = shipHits[0].object;
+        const vessel = hitShip.userData.vessel;
+        if (vessel) {
+          this.renderer.domElement.style.cursor = 'pointer';
+          this.ships.setHoveredVessel(vessel.mmsi, { x: e.clientX, y: e.clientY });
+          return;
+        }
+      }
+
+      this.renderer.domElement.style.cursor = 'default';
+      this.ships.setHoveredVessel(null, null);
+    });
+
+    this.renderer.domElement.addEventListener('pointerleave', () => {
+      isPointerDragging = false;
+      this.pointerDownPos = null;
+      if (this.ships) this.ships.setHoveredVessel(null, null);
     });
 
     // 3. Quick Toggles
@@ -388,6 +461,69 @@ class Windy3DApp {
         if (this.rivers) {
           this.rivers.setVisible(e.target.checked);
         }
+      });
+    }
+
+    const toggleShips = document.getElementById('toggle-ships');
+    if (toggleShips) {
+      toggleShips.addEventListener('change', (e) => {
+        if (this.ships) {
+          this.ships.setVisible(e.target.checked);
+          if (!e.target.checked) {
+            const card = document.getElementById('vessel-card');
+            if (card) card.classList.add('vessel-card-hidden');
+            this.updateShipHoverTooltip(null, null);
+          }
+        }
+        const topBadge = document.getElementById('vessels-top-badge');
+        if (topBadge) {
+          topBadge.classList.toggle('vessel-top-badge-disabled', !e.target.checked);
+        }
+      });
+    }
+
+    const vesselsTopBadge = document.getElementById('vessels-top-badge');
+    if (vesselsTopBadge) {
+      vesselsTopBadge.addEventListener('click', () => {
+        if (toggleShips && !toggleShips.checked) {
+          toggleShips.checked = true;
+          toggleShips.dispatchEvent(new Event('change'));
+        }
+        // Fly over Santos & Rio dense maritime corridors
+        this.smoothFlyTo(new THREE.Vector3(30, 42, 55), new THREE.Vector3(30, 0, 32));
+      });
+    }
+
+    const btnCloseVessel = document.getElementById('btn-close-vessel-card');
+    if (btnCloseVessel) {
+      btnCloseVessel.addEventListener('click', () => {
+        const card = document.getElementById('vessel-card');
+        if (card) card.classList.add('vessel-card-hidden');
+        if (this.ships) this.ships.selectVesselByMmsi(null);
+        this.currentCardVessel = null;
+      });
+    }
+
+    const btnFocusVessel = document.getElementById('btn-focus-vessel');
+    if (btnFocusVessel) {
+      btnFocusVessel.addEventListener('click', () => {
+        if (!this.currentCardVessel) return;
+        let x, z;
+        const vState = this.ships ? this.ships.vessels.get(this.currentCardVessel.mmsi) : null;
+        if (vState) {
+          x = vState.currentX;
+          z = vState.currentZ;
+        } else {
+          const coords = latLonTo3D(this.currentCardVessel.lat, this.currentCardVessel.lon);
+          x = coords.x;
+          z = coords.z;
+        }
+        const groundY = this.terrain ? this.terrain.getElevationAt(x, z) : 0;
+        const waterY = (groundY <= 0.02) ? 0.025 : groundY + 0.035;
+        this.smoothFlyTo(
+          new THREE.Vector3(x, waterY + 12, z + 16),
+          new THREE.Vector3(x, waterY + 0.5, z)
+        );
       });
     }
 
@@ -580,6 +716,13 @@ class Windy3DApp {
 
   async openCityCard(city) {
     this.currentCardCity = city;
+
+    // Hide vessel card if open
+    const vesselCard = document.getElementById('vessel-card');
+    if (vesselCard) vesselCard.classList.add('vessel-card-hidden');
+    if (this.ships) this.ships.selectVesselByMmsi(null);
+    this.currentCardVessel = null;
+
     const card = document.getElementById('city-card');
     card.classList.remove('city-card-hidden');
 
@@ -596,6 +739,113 @@ class Windy3DApp {
     } catch (err) {
       console.warn('Erro ao carregar detalhes da cidade:', err);
     }
+  }
+
+  openVesselCard(vessel) {
+    this.currentCardVessel = vessel;
+
+    // Hide city card if open
+    const cityCard = document.getElementById('city-card');
+    if (cityCard) cityCard.classList.add('city-card-hidden');
+    this.currentCardCity = null;
+
+    const card = document.getElementById('vessel-card');
+    if (!card) return;
+    card.classList.remove('vessel-card-hidden');
+
+    const flagEl = document.getElementById('vc-flag');
+    if (flagEl) flagEl.textContent = vessel.flagEmoji || '🚢';
+
+    const typeEl = document.getElementById('vc-type');
+    if (typeEl) typeEl.textContent = vessel.typeDesc || vessel.type || 'Comercial';
+
+    const statusEl = document.getElementById('vc-status');
+    if (statusEl) {
+      statusEl.textContent = vessel.speed > 0.5 ? '🟢 Em Navegação' : (vessel.status || '⚪ Atracado');
+    }
+
+    const nameEl = document.getElementById('vc-name');
+    if (nameEl) nameEl.textContent = vessel.name;
+
+    const identEl = document.getElementById('vc-ident');
+    if (identEl) {
+      identEl.textContent = `MMSI: ${vessel.mmsi} • IMO: ${vessel.imo || '---'} • CALL: ${vessel.callsign || '---'}`;
+    }
+
+    const speedEl = document.getElementById('vc-speed');
+    if (speedEl) speedEl.textContent = vessel.speed.toFixed(1);
+
+    const speedKmhEl = document.getElementById('vc-speed-kmh');
+    if (speedKmhEl) speedKmhEl.textContent = `(${(vessel.speed * 1.852).toFixed(1)} km/h)`;
+
+    const headingEl = document.getElementById('vc-heading');
+    const needleEl = document.getElementById('vc-needle');
+    if (headingEl) {
+      const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+      const cardinal = dirs[Math.round(((vessel.heading % 360) / 22.5)) % 16];
+      headingEl.textContent = `${vessel.heading}° ${cardinal}`;
+    }
+    if (needleEl) {
+      needleEl.style.transform = `rotate(${vessel.heading}deg)`;
+    }
+
+    const originEl = document.getElementById('vc-origin');
+    if (originEl) originEl.textContent = vessel.origin || 'Brasil';
+
+    const destEl = document.getElementById('vc-dest');
+    if (destEl) destEl.textContent = vessel.destination || 'Destino Marítimo';
+
+    const etaEl = document.getElementById('vc-eta');
+    if (etaEl) etaEl.textContent = vessel.eta || 'Em viagem';
+
+    const lengthEl = document.getElementById('vc-length');
+    if (lengthEl) lengthEl.textContent = `${vessel.length || 200} m`;
+
+    const beamEl = document.getElementById('vc-beam');
+    if (beamEl) beamEl.textContent = `${vessel.beam || 32} m`;
+
+    const draughtEl = document.getElementById('vc-draught');
+    if (draughtEl) draughtEl.textContent = `${(vessel.draught || 10.0).toFixed(1)} m`;
+
+    const portEl = document.getElementById('vc-port');
+    if (portEl) portEl.textContent = vessel.port || 'Águas Brasileiras';
+
+    const mtLink = document.getElementById('btn-marinetraffic-link');
+    if (mtLink) {
+      mtLink.href = `https://www.marinetraffic.com/en/ais/details/ships/mmsi:${vessel.mmsi}`;
+    }
+  }
+
+  updateShipHoverTooltip(vessel, screenPos) {
+    const tooltip = document.getElementById('ship-hover-tooltip');
+    if (!tooltip) return;
+
+    if (!vessel || !screenPos) {
+      tooltip.classList.add('ship-tooltip-hidden');
+      return;
+    }
+
+    const flagEl = document.getElementById('st-flag');
+    if (flagEl) flagEl.textContent = vessel.flagEmoji || '🚢';
+
+    const nameEl = document.getElementById('st-name');
+    if (nameEl) nameEl.textContent = vessel.name;
+
+    const typeEl = document.getElementById('st-type');
+    if (typeEl) typeEl.textContent = vessel.type || 'Navio';
+
+    const speedEl = document.getElementById('st-speed');
+    if (speedEl) speedEl.textContent = `${vessel.speed.toFixed(1)} nós`;
+
+    const headingEl = document.getElementById('st-heading');
+    if (headingEl) headingEl.textContent = `${vessel.heading}°`;
+
+    const destEl = document.getElementById('st-dest');
+    if (destEl) destEl.textContent = (vessel.destination || 'Marítimo').split(' - ')[0];
+
+    tooltip.style.left = `${screenPos.x}px`;
+    tooltip.style.top = `${screenPos.y - 12}px`;
+    tooltip.classList.remove('ship-tooltip-hidden');
   }
 
   renderCityCardData(city, hourOffset = 0) {
@@ -855,6 +1105,7 @@ class Windy3DApp {
     if (this.rivers) this.rivers.update(elapsedTime);
     if (this.isobars) this.isobars.update(elapsedTime);
     if (this.flyingRivers) this.flyingRivers.update(elapsedTime, delta);
+    if (this.ships) this.ships.update(delta, elapsedTime);
 
     // Update floating HTML tags
     this.updateCityHTMLTags();

@@ -3,6 +3,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { fetchLiveAISVessels } from './shipsEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -34,6 +35,7 @@ const cacheCleanupInterval = setInterval(() => {
     }
   }
 }, 30 * 60 * 1000); // 30 minutes
+cacheCleanupInterval.unref();
 
 // Key Brazilian reference cities and marine points for high-definition wind and weather
 const BRAZIL_REFERENCE_STATIONS = [
@@ -260,10 +262,81 @@ app.get('/api/weather/brazil', async (request, reply) => {
   }
 });
 
+// MarineTraffic & Live AIS Ship Traffic in Brazilian Waters
+app.get('/api/ships', async (request, reply) => {
+  try {
+    const { port, type, status, mmsi } = request.query || {};
+    const result = await fetchLiveAISVessels();
+    let vessels = result.vessels;
+
+    const stripAccents = (str) => (str || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+    if (mmsi) {
+      const targetMmsi = parseInt(mmsi, 10);
+      vessels = vessels.filter(v => v.mmsi === targetMmsi);
+    }
+    if (port) {
+      const pNorm = stripAccents(port);
+      vessels = vessels.filter(v => 
+        stripAccents(v.port).includes(pNorm) || 
+        stripAccents(v.origin).includes(pNorm) || 
+        stripAccents(v.destination).includes(pNorm)
+      );
+    }
+    if (type) {
+      const tNorm = stripAccents(type);
+      vessels = vessels.filter(v => 
+        stripAccents(v.type).includes(tNorm) || 
+        stripAccents(v.typeDesc).includes(tNorm)
+      );
+    }
+    if (status) {
+      const sNorm = stripAccents(status);
+      vessels = vessels.filter(v => 
+        stripAccents(v.status).includes(sNorm) || 
+        stripAccents(v.statusEn).includes(sNorm)
+      );
+    }
+
+    reply.header('Cache-Control', 'public, max-age=5');
+    return {
+      success: true,
+      timestamp: new Date().toISOString(),
+      source: result.source,
+      total: vessels.length,
+      vessels
+    };
+  } catch (err) {
+    app.log.error(err, 'Erro ao consultar tráfego marítimo');
+    return reply.status(500).send({ error: 'Erro ao consultar dados AIS' });
+  }
+});
+
+// Alias for marinetraffic endpoint
+app.get('/api/marinetraffic', async (request, reply) => {
+  return reply.redirect('/api/ships');
+});
+
+// Get single vessel by MMSI
+app.get('/api/ships/:mmsi', async (request, reply) => {
+  const { mmsi } = request.params;
+  const targetMmsi = parseInt(mmsi, 10);
+  const result = await fetchLiveAISVessels();
+  const vessel = result.vessels.find(v => v.mmsi === targetMmsi);
+
+  if (!vessel) {
+    return reply.status(404).send({ error: 'Navio não encontrado com o MMSI informado' });
+  }
+  return { success: true, vessel };
+});
+
 // Health check endpoint
 app.get('/api/health', async () => {
   return { status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() };
 });
+
+// Export Fastify app for testing and custom mounts
+export { app };
 
 // Export Fastify handler for Vercel Serverless Functions
 export default async function handler(req, res) {
@@ -271,8 +344,13 @@ export default async function handler(req, res) {
   app.server.emit('request', req, res);
 }
 
-// Start standalone HTTP server when running locally
-if (!process.env.VERCEL) {
+const isMain = process.argv[1] && (
+  fileURLToPath(import.meta.url) === process.argv[1] ||
+  process.argv[1].endsWith('server.js')
+);
+
+// Start standalone HTTP server when running directly
+if (!process.env.VERCEL && isMain) {
   const PORT = process.env.PORT || 3000;
   const HOST = '0.0.0.0';
 
@@ -282,6 +360,7 @@ if (!process.env.VERCEL) {
     console.log(`  🌪️  WINDY 3D — Servidor Ativo com Sucesso!`);
     console.log(`  🌐  Acesse no seu navegador: http://localhost:${PORT}`);
     console.log(`  📡  API Brasil Clima: http://localhost:${PORT}/api/weather/brazil`);
+    console.log(`  🚢  API MarineTraffic (AIS): http://localhost:${PORT}/api/ships`);
     console.log(`======================================================\n`);
   } catch (err) {
     app.log.error(err);

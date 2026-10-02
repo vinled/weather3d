@@ -45,6 +45,10 @@
           <span class="model-name">ECMWF</span>
           <span class="model-res">9km</span>
         </div>
+        <div class="model-badge vessel-top-badge" id="vessels-top-badge" title="Navios ao Vivo (MarineTraffic AIS)">
+          <span>🚢</span>
+          <span id="vessels-count-top">47 Navios</span>
+        </div>
         <div class="status-indicator" id="status-bar">
           <span class="status-dot"></span>
           <span id="status-text">Conectando aos satélites...</span>
@@ -195,6 +199,13 @@
           </label>
         </div>
         <div class="toggle-row">
+          <span>Navios ao Vivo (AIS)</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-ships" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
           <span>Rotação Suave</span>
           <label class="switch">
             <input type="checkbox" id="toggle-autorotate">
@@ -251,6 +262,81 @@
       </div>
     </div>
 
+    <!-- Vessel Telemetry Card (MarineTraffic AIS Detail Card) -->
+    <div id="vessel-card" class="vessel-card-hidden">
+      <button class="btn-close-card" id="btn-close-vessel-card" title="Fechar">×</button>
+      <div class="vessel-card-header">
+        <div class="vessel-badge-row">
+          <span class="vessel-flag" id="vc-flag">🇧🇷</span>
+          <span class="vessel-type-badge" id="vc-type">Portacontêiner</span>
+          <span class="vessel-status-badge" id="vc-status">🟢 Em Navegação</span>
+        </div>
+        <h2 id="vc-name">MSC BIANCA</h2>
+        <span class="vessel-ident-text" id="vc-ident">MMSI: 710000412 • IMO: 9622239 • CALL: 3FYB5</span>
+      </div>
+
+      <div class="vessel-telemetry-main">
+        <div class="vessel-speed-display">
+          <div class="speed-number-wrap">
+            <span id="vc-speed" class="speed-val">15.6</span>
+            <span class="speed-unit">nós</span>
+          </div>
+          <span class="speed-kmh" id="vc-speed-kmh">(28.9 km/h)</span>
+        </div>
+        <div class="vessel-heading-display">
+          <div class="compass-dial" id="vc-compass">
+            <span class="compass-needle" id="vc-needle">➤</span>
+          </div>
+          <div class="compass-info">
+            <span class="heading-sub">Rumo (COG)</span>
+            <span class="heading-val" id="vc-heading">198° SSW</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="voyage-route-box">
+        <div class="voyage-line">
+          <div class="voyage-point">
+            <span class="point-label">Origem</span>
+            <span class="point-val" id="vc-origin">Santos (BR)</span>
+          </div>
+          <div class="voyage-arrow">➔</div>
+          <div class="voyage-point">
+            <span class="point-label">Destino</span>
+            <span class="point-val" id="vc-dest">Itajaí (BR)</span>
+          </div>
+        </div>
+        <div class="voyage-eta">
+          <span>Previsão de Chegada (ETA):</span>
+          <b id="vc-eta">Hoje 22:30 UTC</b>
+        </div>
+      </div>
+
+      <div class="weather-metrics-grid">
+        <div class="metric-item">
+          <span class="metric-label">Comprimento</span>
+          <span class="metric-value" id="vc-length">366 m</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Boca</span>
+          <span class="metric-value" id="vc-beam">48 m</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Calado</span>
+          <span class="metric-value" id="vc-draught">14.2 m</span>
+        </div>
+        <div class="metric-item">
+          <span class="metric-label">Porto Base</span>
+          <span class="metric-value" id="vc-port">Santos</span>
+        </div>
+      </div>
+
+      <div class="vessel-actions">
+        <button class="btn-apple-pill btn-primary" id="btn-focus-vessel">🎯 Focar Navio</button>
+        <a class="btn-apple-pill btn-secondary" id="btn-marinetraffic-link" href="#" target="_blank" rel="noopener">MarineTraffic ↗</a>
+      </div>
+    </div>
+
     <!-- Bottom Controls & Dynamic Legend Bar (Windy.com Style) -->
     <footer class="bottom-bar" id="bottom-bar">
       <div class="bottom-bar-left">
@@ -301,6 +387,22 @@
       <div class="picker-popup" id="picker-popup">
         <div class="picker-row"><span class="picker-icon" id="picker-icon-1">🌡️</span> <span id="picker-val-1">--°</span></div>
         <div class="picker-row"><span class="picker-icon" id="picker-icon-2">💨</span> <span id="picker-val-2">-- km/h</span></div>
+      </div>
+    </div>
+
+    <!-- Ship Hover Floating Mini Tooltip -->
+    <div id="ship-hover-tooltip" class="ship-tooltip-hidden">
+      <div class="ship-tooltip-header">
+        <span id="st-flag" class="st-flag">🇧🇷</span>
+        <div class="st-title-col">
+          <span id="st-name" class="st-name">MSC BIANCA</span>
+          <span id="st-type" class="st-type">Portacontêiner</span>
+        </div>
+      </div>
+      <div class="ship-tooltip-body">
+        <div class="st-row"><span>Velocidade:</span> <b id="st-speed">15.6 nós</b></div>
+        <div class="st-row"><span>Rumo:</span> <b id="st-heading">198°</b></div>
+        <div class="st-row"><span>Destino:</span> <b id="st-dest">Itajaí</b></div>
       </div>
     </div>
 
