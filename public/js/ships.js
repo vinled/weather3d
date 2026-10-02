@@ -109,6 +109,66 @@ export class ShipTrafficSystem {
 
     this.waterRingGeo = new THREE.RingGeometry(0.75, 0.95, 24);
     this.waterRingGeo.rotateX(-Math.PI / 2);
+
+    // 7. On-Map Nautical Ship Icon (prominent boat silhouette on ocean surface)
+    this.shipIconPlaneGeo = new THREE.PlaneGeometry(1.9, 1.9);
+    this.shipIconPlaneGeo.rotateX(-Math.PI / 2);
+    this.shipIconTextures = new Map();
+  }
+
+  getShipIconTexture(colorHex) {
+    if (this.shipIconTextures.has(colorHex)) {
+      return this.shipIconTextures.get(colorHex);
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    const cx = 64, cy = 64;
+
+    const colorStr = '#' + colorHex.toString(16).padStart(6, '0');
+
+    // Outer glow / shadow
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 4;
+
+    // Stylized nautical vessel hull facing UP (-Z direction in Three.js)
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 48); // Sharp pointed bow
+    ctx.bezierCurveTo(cx + 18, cy - 24, cx + 24, cy + 12, cx + 22, cy + 42); // Starboard curve
+    ctx.lineTo(cx - 22, cy + 42); // Transom / stern
+    ctx.bezierCurveTo(cx - 24, cy + 12, cx - 18, cy - 24, cx, cy - 48); // Port curve
+    ctx.closePath();
+
+    ctx.fillStyle = colorStr;
+    ctx.fill();
+
+    // White high-contrast naval outline
+    ctx.shadowColor = 'transparent';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#ffffff';
+    ctx.stroke();
+
+    // Deck superstructure cabin block
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.fillRect(cx - 10, cy + 10, 20, 18);
+
+    // Forward directional heading triangle
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 32);
+    ctx.lineTo(cx + 9, cy - 14);
+    ctx.lineTo(cx - 9, cy - 14);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    this.shipIconTextures.set(colorHex, texture);
+    return texture;
   }
 
   async fetchLiveVessels() {
@@ -145,12 +205,10 @@ export class ShipTrafficSystem {
         existing.speed = rawVessel.speed;
         existing.status = rawVessel.status;
 
-        // Update tag speed, heading arrow and degree
+        // Update tag speed
         const tagObj = this.vesselTags.get(rawVessel.mmsi);
-        if (tagObj) {
-          if (tagObj.speedEl) tagObj.speedEl.textContent = `${rawVessel.speed.toFixed(1)} kn`;
-          if (tagObj.arrowEl) tagObj.arrowEl.style.transform = `rotate(${rawVessel.heading}deg)`;
-          if (tagObj.headingEl) tagObj.headingEl.textContent = `${rawVessel.heading}°`;
+        if (tagObj && tagObj.speedEl) {
+          tagObj.speedEl.textContent = `${rawVessel.speed.toFixed(1)} kn`;
         }
       } else {
         // Create new 3D vessel object
@@ -159,15 +217,10 @@ export class ShipTrafficSystem {
 
       // Create floating 3D/2D vessel tag on UI container if not present
       if (!this.vesselTags.has(rawVessel.mmsi) && this.uiContainer) {
-        const typeColorHex = '#' + this.getVesselTypeColor(rawVessel.type).toString(16).padStart(6, '0');
         const tag = document.createElement('div');
         tag.className = 'vessel-scene-tag';
         tag.innerHTML = `
-          <span class="vessel-tag-dir-badge" style="background:${typeColorHex}; box-shadow: 0 0 6px ${typeColorHex};" title="Rumo: ${rawVessel.heading}°">
-            <span class="vessel-tag-arrow" style="transform: rotate(${rawVessel.heading}deg);">➤</span>
-          </span>
           <span class="vessel-tag-name">${rawVessel.name}</span>
-          <span class="vessel-tag-heading-deg">${rawVessel.heading}°</span>
           <span class="vessel-tag-speed">${rawVessel.speed.toFixed(1)} kn</span>
         `;
         tag.addEventListener('click', (e) => {
@@ -184,8 +237,6 @@ export class ShipTrafficSystem {
         this.uiContainer.appendChild(tag);
         this.vesselTags.set(rawVessel.mmsi, {
           element: tag,
-          arrowEl: tag.querySelector('.vessel-tag-arrow'),
-          headingEl: tag.querySelector('.vessel-tag-heading-deg'),
           speedEl: tag.querySelector('.vessel-tag-speed'),
           lastDisplay: 'flex'
         });
@@ -296,6 +347,20 @@ export class ShipTrafficSystem {
     beaconRing.renderOrder = 8;
     root.add(beaconRing);
 
+    // 6. On-Map Nautical Ship Icon (direct on-water boat silhouette with heading indicator)
+    const iconTexture = this.getShipIconTexture(typeColor);
+    const iconMat = new THREE.MeshBasicMaterial({
+      map: iconTexture,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthTest: false
+    });
+    const onMapIcon = new THREE.Mesh(this.shipIconPlaneGeo, iconMat);
+    onMapIcon.position.y = 0.012;
+    onMapIcon.renderOrder = 10;
+    root.add(onMapIcon);
+
     // Create Wake Ribbon trailing behind
     const wakeMesh = this.createWakeMesh(vessel);
     root.add(wakeMesh);
@@ -327,6 +392,7 @@ export class ShipTrafficSystem {
       beaconRing,
       waterRing,
       waterHull,
+      onMapIcon,
       pinLine,
       typeColor,
       wakeMesh,
@@ -654,6 +720,9 @@ export class ShipTrafficSystem {
       if (v.waterHull) {
         v.waterHull.scale.set(scale, scale, scale);
       }
+      if (v.onMapIcon) {
+        v.onMapIcon.scale.set(scale, scale, scale);
+      }
       if (v.pinLine) {
         v.pinLine.scale.set(scale, scale, scale);
       }
@@ -808,7 +877,9 @@ export class ShipTrafficSystem {
 
     // Reset previous hover scale
     if (this.hoveredVessel && this.vessels.has(this.hoveredVessel)) {
-      this.vessels.get(this.hoveredVessel).modelGroup.scale.set(1, 1, 1);
+      const prevV = this.vessels.get(this.hoveredVessel);
+      prevV.modelGroup.scale.set(1, 1, 1);
+      if (prevV.onMapIcon) prevV.onMapIcon.scale.set(1, 1, 1);
     }
 
     this.hoveredVessel = mmsi;
@@ -816,6 +887,7 @@ export class ShipTrafficSystem {
     if (mmsi && this.vessels.has(mmsi)) {
       const v = this.vessels.get(mmsi);
       v.modelGroup.scale.set(1.18, 1.18, 1.18);
+      if (v.onMapIcon) v.onMapIcon.scale.set(1.3, 1.3, 1.3);
       this.onHoverVessel(v.data, screenPos);
     } else {
       this.onHoverVessel(null, null);

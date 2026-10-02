@@ -42,12 +42,14 @@ export class RainLayer {
     const vertexCount = heatPos.count;
     const heatColors = new Float32Array(vertexCount * 3);
     const heatAlphas = new Float32Array(vertexCount);
+    this.baseHeatmapY = new Float32Array(vertexCount);
 
     for (let i = 0; i < vertexCount; i++) {
       const x = heatPos.getX(i);
       const z = heatPos.getZ(i);
       const y = Math.max(0.015, this.terrain.getElevationAt(x, z)) + 0.035;
       heatPos.setY(i, y);
+      this.baseHeatmapY[i] = y;
 
       heatColors[i * 3 + 0] = 0.02;
       heatColors[i * 3 + 1] = 0.71;
@@ -169,6 +171,17 @@ export class RainLayer {
     if (this.heatmapMesh) {
       this.heatmapMesh.visible = visible;
     }
+  }
+
+  setElevationScale(reliefFactor) {
+    if (!this.heatmapMesh || !this.baseHeatmapY) return;
+    const pos = this.heatmapMesh.geometry.attributes.position;
+    const count = pos.count;
+    for (let i = 0; i < count; i++) {
+      const origElev = this.baseHeatmapY[i] - 0.035;
+      pos.setY(i, origElev * reliefFactor + (reliefFactor > 0.5 ? 0.035 : 0.046));
+    }
+    pos.needsUpdate = true;
   }
 
   // Module-level reusable colors for zero GC allocations

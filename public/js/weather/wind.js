@@ -53,11 +53,14 @@ export class WindLayer {
     const vertexCount = heatPos.count;
     const heatColors = new Float32Array(vertexCount * 3);
 
+    this.baseHeatmapY = new Float32Array(vertexCount);
+
     for (let i = 0; i < vertexCount; i++) {
       const x = heatPos.getX(i);
       const z = heatPos.getZ(i);
       const y = Math.max(0.015, this.terrain.getElevationAt(x, z)) + 0.035;
       heatPos.setY(i, y);
+      this.baseHeatmapY[i] = y;
 
       // Default calm navy-blue
       heatColors[i * 3 + 0] = 0.18;
@@ -78,7 +81,7 @@ export class WindLayer {
     });
 
     this.heatmapMesh = new THREE.Mesh(heatGeo, heatMat);
-    this.heatmapMesh.renderOrder = 2;
+    this.heatmapMesh.renderOrder = 6; // Sit nicely over OSM tiles (4)
     this.heatmapMesh.visible = this.heatmapVisible;
     this.group.add(this.heatmapMesh);
 
@@ -142,6 +145,17 @@ export class WindLayer {
     if (this.heatmapMesh) {
       this.heatmapMesh.visible = visible;
     }
+  }
+
+  setElevationScale(reliefFactor) {
+    if (!this.heatmapMesh || !this.baseHeatmapY) return;
+    const pos = this.heatmapMesh.geometry.attributes.position;
+    const count = pos.count;
+    for (let i = 0; i < count; i++) {
+      const origElev = this.baseHeatmapY[i] - 0.035;
+      pos.setY(i, origElev * reliefFactor + (reliefFactor > 0.5 ? 0.035 : 0.046));
+    }
+    pos.needsUpdate = true;
   }
 
   // Module-level reusable colors for zero GC allocations

@@ -20,6 +20,8 @@ export class BrazilTerrain {
     this.oceanMesh = null;
     this.coastlineMesh = null;
     this.stateBordersGroup = null;
+    this.baseElevations = null;
+    this.currentReliefScale = 1.0;
 
     this.init();
   }
@@ -37,9 +39,10 @@ export class BrazilTerrain {
    * Apple-style relief: gentle rolling hills with visible but soft mountain ranges.
    */
   getElevation(lat, lon) {
+    const scale = this.currentReliefScale !== undefined ? this.currentReliefScale : 1.0;
     const inside = isPointInBrazil(lat, lon);
     if (!inside) {
-      return 0.02; // Very gentle shallow coastal water
+      return 0.02 * scale; // Very gentle shallow coastal water
     }
 
     // Base elevation for land
@@ -73,26 +76,46 @@ export class BrazilTerrain {
     }
 
     // Coastal smoothing — reduce elevation near the coast for gentle shoreline
-    // Simple distance-to-nearest-boundary-point heuristic for coastal areas
     const coastLat = Math.abs(lat + 23); // rough distance from major coast
     const coastProximity = Math.min(1.0, Math.max(0, (lon + 40.0) / 6.0)); // east coast fade
     if (coastProximity > 0.5 && h > 0.12) {
       h = 0.12 + (h - 0.12) * (1.0 - (coastProximity - 0.5) * 0.6);
     }
 
-    return Math.max(0.04, Math.min(0.55, h));
+    return Math.max(0.04 * scale, Math.min(0.55 * scale, h * scale));
   }
 
   /**
    * Get 3D elevation Y at world position X, Z
    */
   getElevationAt(x, z) {
+    const scale = this.currentReliefScale !== undefined ? this.currentReliefScale : 1.0;
     const { lat, lon } = threeDToLatLon(x, z);
     if (!isPointInBrazil(lat, lon)) {
       const isContinent = (lon > -82 && lon < -34 && lat > -56 && lat < 12);
-      return (isContinent && lon < -37.5) ? 0.04 : 0.0;
+      return (isContinent && lon < -37.5) ? (0.04 * scale) : 0.0;
     }
     return this.getElevation(lat, lon);
+  }
+
+  /**
+   * Dynamically scales 3D terrain elevation (1.0 = full 3D relief, 0.0 = flat for OSM street map)
+   * @param {number} scale
+   */
+  setReliefScale(scale) {
+    const clampedScale = Math.max(0.0, Math.min(1.0, scale));
+    if (Math.abs(this.currentReliefScale - clampedScale) < 0.005) return;
+    this.currentReliefScale = clampedScale;
+
+    if (this.mesh && this.baseElevations) {
+      const pos = this.mesh.geometry.attributes.position;
+      const count = pos.count;
+      for (let i = 0; i < count; i++) {
+        pos.setY(i, this.baseElevations[i] * clampedScale);
+      }
+      pos.needsUpdate = true;
+      this.mesh.geometry.computeVertexNormals();
+    }
   }
 
   createLandTerrain() {
@@ -107,6 +130,7 @@ export class BrazilTerrain {
     const pos = geometry.attributes.position;
     const count = pos.count;
     const colors = new Float32Array(count * 3);
+    this.baseElevations = new Float32Array(count);
 
     // Apple-style minimalist color palette (rich lush greens with gentle moss highlights)
     const oceanColor = new THREE.Color(0x0a1420); // deep sleek dark navy
@@ -127,6 +151,7 @@ export class BrazilTerrain {
 
       if (inside) {
         elev = this.getElevation(lat, lon);
+        this.baseElevations[i] = elev;
         pos.setY(i, elev);
 
         // Smooth color blending across relief
@@ -145,11 +170,13 @@ export class BrazilTerrain {
         const isContinent = (lon > -82 && lon < -34 && lat > -56 && lat < 12);
         if (isContinent && lon < -37.5) {
           elev = 0.04;
+          this.baseElevations[i] = elev;
           pos.setY(i, elev);
           vertexColor.copy(outsideLandColor);
         } else {
           // Atlantic Ocean
           elev = 0.0;
+          this.baseElevations[i] = 0.0;
           pos.setY(i, elev);
           vertexColor.copy(oceanColor);
         }
@@ -326,6 +353,34 @@ export class BrazilTerrain {
     const baseMesh = new THREE.Mesh(baseGeo, baseMat);
     baseMesh.position.y = -0.65;
     this.terrainGroup.add(baseMesh);
+  }
+
+  setElevationScale(reliefFactor) {
+    if (this.currentReliefScale === reliefFactor) return;
+    if (Math.abs(this.currentReliefScale - reliefFactor) < 0.005) return;
+    this.currentReliefScale = reliefFactor;
+
+    if (this.mesh && this.mesh.geometry && this.baseElevations) {
+      const pos = this.mesh.geometry.attributes.position;
+      const count = pos.count;
+      for (let i = 0; i < count; i++) {
+        pos.setY(i, this.baseElevations[i] * reliefFactor);
+      }
+      pos.needsUpdate = true;
+      this.mesh.geometry.computeVertexNormals();
+    }
+
+    const borderYOffset = (reliefFactor - 1.0) * 0.065;
+    if (this.stateBordersGroup) {
+      this.stateBordersGroup.position.y = borderYOffset;
+    }
+    if (this.coastlineMesh) {
+      this.coastlineMesh.position.y = borderYOffset;
+    }
+  }
+
+  setReliefScale(reliefFactor) {
+    this.setElevationScale(reliefFactor);
   }
 
   update(time) {

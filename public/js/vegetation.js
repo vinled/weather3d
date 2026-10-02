@@ -180,4 +180,11 @@ export class VegetationSystem {
       this.pineTreesMesh.position.z = swayZ;
     }
   }
+
+  setVegetationFade(factor) {
+    if (this.vegGroup) {
+      this.vegGroup.scale.set(factor, factor, factor);
+      this.vegGroup.visible = factor > 0.03;
+    }
+  }
 }

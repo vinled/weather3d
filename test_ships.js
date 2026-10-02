@@ -231,6 +231,33 @@ async function runRigorousTests() {
   assert('ships.js contains drawVoyageRoute method', shipsJsText.includes('drawVoyageRoute('));
   assert('ships.js contains clearVoyageRoute method', shipsJsText.includes('clearVoyageRoute('));
   assert('ships.js contains toggleRouteVisible method', shipsJsText.includes('toggleRouteVisible('));
+  assert('ships.js creates onMapIcon mesh directly on water', shipsJsText.includes('onMapIcon = new THREE.Mesh'));
+  assert('ships.js generates on-map nautical ship icon texture', shipsJsText.includes('getShipIconTexture('));
+  assert('ships.js scales onMapIcon in update loop', shipsJsText.includes('v.onMapIcon.scale.set('));
+
+  // 5. Testes do Sistema de OpenStreetMap no Zoom e Flatten do Relevo 3D
+  console.log('\n--- 5. Testando OpenStreetMap no Zoom & Fade Suave de Relevo ---');
+  const osmRes = await fetch(`${baseUrl}/js/osmTileSystem.js`);
+  assert('osmTileSystem.js served with HTTP 200', osmRes.status === 200);
+  const osmText = await osmRes.text();
+  assert('osmTileSystem.js defines OpenStreetMapSystem', osmText.includes('class OpenStreetMapSystem'));
+  assert('osmTileSystem.js supports CartoDB Dark Matter & OSM tiles', osmText.includes('carto-dark') && osmText.includes('osm-standard'));
+  assert('osmTileSystem.js implements Web Mercator slippy tile math', osmText.includes('lon2tile(') && osmText.includes('lat2tile('));
+  assert('index.html contains toggle-osm', html.includes('id="toggle-osm"'));
+  assert('style.css contains .osm-attribution-badge', css.includes('.osm-attribution-badge'));
+
+  const terrainRes = await fetch(`${baseUrl}/js/terrain.js`);
+  const terrainText = await terrainRes.text();
+  assert('terrain.js contains setReliefScale and setElevationScale', terrainText.includes('setReliefScale(') && terrainText.includes('setElevationScale('));
+
+  const appRes = await fetch(`${baseUrl}/js/app.js`);
+  const appJsText = await appRes.text();
+  assert('app.js imports OpenStreetMapSystem', appJsText.includes("import { OpenStreetMapSystem } from './osmTileSystem.js'"));
+  assert('app.js instantiates osmTiles in initWorld', appJsText.includes('this.osmTiles = new OpenStreetMapSystem'));
+  assert('app.js updates osmTiles and drives terrain setReliefScale crossfade', appJsText.includes('this.osmTiles.update(') && appJsText.includes('this.terrain.setReliefScale('));
+  assert('app.js drives cities setBuildingsFade crossfade', appJsText.includes('this.cities.setBuildingsFade('));
+  assert('app.js drives vegetation setVegetationFade crossfade', appJsText.includes('this.vegetation.setVegetationFade('));
+  assert('app.js wires toggle-osm event listener', appJsText.includes("document.getElementById('toggle-osm')"));
 
   try {
     if (app.server && typeof app.server.closeAllConnections === 'function') {

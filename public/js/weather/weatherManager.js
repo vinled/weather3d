@@ -280,4 +280,12 @@ export class WeatherManager {
       }
     });
   }
+
+  setElevationScale(reliefFactor) {
+    Object.values(this.layers).forEach(layer => {
+      if (layer && typeof layer.setElevationScale === 'function') {
+        layer.setElevationScale(reliefFactor);
+      }
+    });
+  }
 }

@@ -212,4 +212,11 @@ export class CitiesSystem {
       }
     });
   }
+
+  setBuildingsFade(factor) {
+    if (this.buildingsMesh) {
+      this.buildingsMesh.scale.y = Math.max(0.001, factor);
+      this.buildingsMesh.visible = factor > 0.03;
+    }
+  }
 }

@@ -10,6 +10,7 @@ import { BrazilRiversSystem } from './rivers.js';
 import { IsobarsSystem } from './weather/isobars.js';
 import { FlyingRiversSystem } from './weather/flyingRivers.js';
 import { ShipTrafficSystem } from './ships.js';
+import { OpenStreetMapSystem } from './osmTileSystem.js';
 import { latLonTo3D, threeDToLatLon } from './utils/geo.js';
 import { BRAZIL_CITIES } from './data/brazilData.js';
 
@@ -31,6 +32,7 @@ class Windy3DApp {
     this.isobars = null;
     this.flyingRivers = null;
     this.ships = null;
+    this.osmTiles = null;
 
     this.clock = new THREE.Clock();
     this.cityTags = [];
@@ -165,6 +167,9 @@ class Windy3DApp {
       (vessel) => this.openVesselCard(vessel),
       (vessel, screenPos) => this.updateShipHoverTooltip(vessel, screenPos)
     );
+
+    // 12. OpenStreetMap Dynamic Slippy Tile System on Zoom
+    this.osmTiles = new OpenStreetMapSystem(this.scene);
   }
 
   createCityHTMLTags() {
@@ -478,6 +483,22 @@ class Windy3DApp {
         const topBadge = document.getElementById('vessels-top-badge');
         if (topBadge) {
           topBadge.classList.toggle('vessel-top-badge-disabled', !e.target.checked);
+        }
+      });
+    }
+
+    const toggleOsm = document.getElementById('toggle-osm');
+    if (toggleOsm) {
+      toggleOsm.addEventListener('change', (e) => {
+        if (this.osmTiles) {
+          this.osmTiles.setEnabled(e.target.checked);
+          if (!e.target.checked) {
+            // Instantly restore full 3D terrain relief and 3D buildings/trees when disabled
+            if (this.terrain) this.terrain.setReliefScale(1.0);
+            if (this.cities) this.cities.setBuildingsFade(1.0);
+            if (this.vegetation) this.vegetation.setVegetationFade(1.0);
+            if (this.weather) this.weather.setElevationScale(1.0);
+          }
         }
       });
     }
@@ -1116,6 +1137,17 @@ class Windy3DApp {
     if (this.flyingRivers) this.flyingRivers.update(elapsedTime, delta);
     if (this.ships) this.ships.update(delta, elapsedTime, this.camera);
 
+    // Update OpenStreetMap dynamic zoom LOD & smooth crossfade
+    if (this.osmTiles) {
+      const osmOpacity = this.osmTiles.update(this.camera, this.controls.target);
+      // As OSM tiles fade in on zoom (0 -> 1), flatten 3D macro relief & fade out 3D buildings/trees (1 -> 0)
+      const relief3DFactor = Math.max(0.0, 1.0 - (osmOpacity * 0.96));
+      if (this.terrain) this.terrain.setReliefScale(relief3DFactor);
+      if (this.cities) this.cities.setBuildingsFade(relief3DFactor);
+      if (this.vegetation) this.vegetation.setVegetationFade(relief3DFactor);
+      if (this.weather) this.weather.setElevationScale(relief3DFactor);
+    }
+
     // Update floating HTML tags
     this.updateCityHTMLTags();
     this.updatePickerHTMLTag();
@@ -1270,6 +1302,13 @@ class Windy3DApp {
     const windOn = toggleWind ? toggleWind.checked : true;
     if (this.weather && this.weather.layers && this.weather.layers.wind) {
       this.weather.layers.wind.setHeatmapVisible(windOn);
+    }
+
+    // 11. OpenStreetMap on Zoom (Default ON)
+    const toggleOsm = document.getElementById('toggle-osm');
+    const osmOn = toggleOsm ? toggleOsm.checked : true;
+    if (this.osmTiles) {
+      this.osmTiles.setEnabled(osmOn);
     }
   }
 }
