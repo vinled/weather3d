@@ -200,6 +200,38 @@ async function runRigorousTests() {
   const jsRes = await fetch(`${baseUrl}/js/ships.js`);
   assert('ships.js served with HTTP 200', jsRes.status === 200);
 
+  // 4. Testes das Novas Funcionalidades: Rota Náutica, Marcadores e Inicialização
+  console.log('\n--- 4. Testando Novas Funcionalidades (Rotas, Ícones, Toggles e .bat) ---');
+  
+  // Test INICIAR_SERVIDOR.bat
+  const batPath = join(__dirname, 'INICIAR_SERVIDOR.bat');
+  const batContent = readFileSync(batPath, 'utf8');
+  assert('INICIAR_SERVIDOR.bat exists and starts server', batContent.includes('node server.js'));
+  assert('INICIAR_SERVIDOR.bat opens browser on localhost:3000', batContent.includes('http://localhost:3000'));
+
+  // Test Default Toggles: ONLY wind is checked!
+  assert('toggle-wind-heatmap is checked by default', html.includes('id="toggle-wind-heatmap" checked'));
+  assert('toggle-rain-heatmap is UNCHECKED by default', html.includes('id="toggle-rain-heatmap"') && !html.includes('id="toggle-rain-heatmap" checked'));
+  assert('toggle-cities is UNCHECKED by default', html.includes('id="toggle-cities"') && !html.includes('id="toggle-cities" checked'));
+  assert('toggle-trees is UNCHECKED by default', html.includes('id="toggle-trees"') && !html.includes('id="toggle-trees" checked'));
+  assert('toggle-states is UNCHECKED by default', html.includes('id="toggle-states"') && !html.includes('id="toggle-states" checked'));
+  assert('toggle-ships is UNCHECKED by default', html.includes('id="toggle-ships"') && !html.includes('id="toggle-ships" checked'));
+
+  // Test UI Route & Directional Tag Elements
+  assert('index.html contains btn-toggle-vessel-route', html.includes('id="btn-toggle-vessel-route"'));
+  assert('style.css contains .btn-route styling', css.includes('.btn-route'));
+  assert('style.css contains .vessel-tag-arrow', css.includes('.vessel-tag-arrow'));
+  assert('style.css contains .port-scene-tag', css.includes('.port-scene-tag'));
+  assert('style.css contains .vessel-scene-tag::after pointer pin', css.includes('.vessel-scene-tag::after'));
+
+  // Test Ships.js exports & Coastal Chain
+  const shipsJsText = await jsRes.text();
+  assert('ships.js contains NAUTICAL_PORTS dictionary', shipsJsText.includes('NAUTICAL_PORTS'));
+  assert('ships.js contains BRAZIL_COASTAL_CHAIN', shipsJsText.includes('BRAZIL_COASTAL_CHAIN'));
+  assert('ships.js contains drawVoyageRoute method', shipsJsText.includes('drawVoyageRoute('));
+  assert('ships.js contains clearVoyageRoute method', shipsJsText.includes('clearVoyageRoute('));
+  assert('ships.js contains toggleRouteVisible method', shipsJsText.includes('toggleRouteVisible('));
+
   try {
     if (app.server && typeof app.server.closeAllConnections === 'function') {
       app.server.closeAllConnections();

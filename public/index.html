@@ -45,7 +45,7 @@
           <span class="model-name">ECMWF</span>
           <span class="model-res">9km</span>
         </div>
-        <div class="model-badge vessel-top-badge" id="vessels-top-badge" title="Navios ao Vivo (MarineTraffic AIS)">
+        <div class="model-badge vessel-top-badge vessel-top-badge-disabled" id="vessels-top-badge" title="Navios ao Vivo (MarineTraffic AIS) - Clique para Ativar">
           <span>🚢</span>
           <span id="vessels-count-top">47 Navios</span>
         </div>
@@ -145,63 +145,63 @@
         <div class="toggle-row">
           <span>Radar de Chuva</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-rain-heatmap" checked>
+            <input type="checkbox" id="toggle-rain-heatmap">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Prédios 3D</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-cities" checked>
+            <input type="checkbox" id="toggle-cities">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Florestas 3D</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-trees" checked>
+            <input type="checkbox" id="toggle-trees">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Limites dos Estados</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-states" checked>
+            <input type="checkbox" id="toggle-states">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Frentes Sinóticas</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-fronts" checked>
+            <input type="checkbox" id="toggle-fronts">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Rios Voadores (Amazônia)</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-flying-rivers" checked>
+            <input type="checkbox" id="toggle-flying-rivers">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Isóbaras (Pressão)</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-isobars" checked>
+            <input type="checkbox" id="toggle-isobars">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Grandes Rios 3D</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-rivers" checked>
+            <input type="checkbox" id="toggle-rivers">
             <span class="slider"></span>
           </label>
         </div>
         <div class="toggle-row">
           <span>Navios ao Vivo (AIS)</span>
           <label class="switch">
-            <input type="checkbox" id="toggle-ships" checked>
+            <input type="checkbox" id="toggle-ships">
             <span class="slider"></span>
           </label>
         </div>
@@ -333,6 +333,7 @@
 
       <div class="vessel-actions">
         <button class="btn-apple-pill btn-primary" id="btn-focus-vessel">🎯 Focar Navio</button>
+        <button class="btn-apple-pill btn-route" id="btn-toggle-vessel-route" title="Alternar visualização da rota">🗺️ Rota Náutica</button>
         <a class="btn-apple-pill btn-secondary" id="btn-marinetraffic-link" href="#" target="_blank" rel="noopener">MarineTraffic ↗</a>
       </div>
     </div>

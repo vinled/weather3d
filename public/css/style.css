@@ -915,6 +915,26 @@ input:checked + .slider:before {
   padding: 8px 10px;
 }
 
+.btn-route {
+  background: rgba(245, 158, 11, 0.2) !important;
+  border: 1px solid rgba(245, 158, 11, 0.45) !important;
+  color: #fbbf24 !important;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-route:hover {
+  background: rgba(245, 158, 11, 0.35) !important;
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+}
+
+.btn-route.route-active {
+  background: rgba(16, 185, 129, 0.25) !important;
+  border-color: rgba(16, 185, 129, 0.6) !important;
+  color: #34d399 !important;
+}
+
 /* ==========================================================================
    Ship Hover Mini Tooltip
    ========================================================================== */
@@ -1273,10 +1293,10 @@ input:checked + .slider:before {
   top: 0;
   left: 0;
   transform: translate(-50%, -100%);
-  background: rgba(10, 25, 45, 0.88);
+  background: rgba(10, 25, 45, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(56, 189, 248, 0.45);
+  border: 1px solid rgba(56, 189, 248, 0.5);
   border-radius: 20px;
   padding: 3px 8px;
   font-size: 11px;
@@ -1287,18 +1307,33 @@ input:checked + .slider:before {
   display: flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), 0 0 10px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.55), 0 0 12px rgba(56, 189, 248, 0.3);
   transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
   user-select: none;
   z-index: 50;
 }
 
+/* Map pinpoint pointer needle pointing exactly down to water */
+.vessel-scene-tag::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(10, 25, 45, 0.95);
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+}
+
 .vessel-scene-tag:hover {
   background: rgba(14, 165, 233, 0.95);
   color: #030712;
   border-color: #38bdf8;
-  box-shadow: 0 0 18px rgba(56, 189, 248, 0.8);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.85);
   transform: translate(-50%, -108%) scale(1.08);
 }
 
@@ -1316,12 +1351,91 @@ input:checked + .slider:before {
   color: #030712;
 }
 
+.vessel-tag-dir-badge {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.vessel-tag-arrow {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  color: #ffffff;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: center center;
+}
+
+.vessel-tag-heading-deg {
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.65);
+  margin-left: -2px;
+}
+
+.vessel-scene-tag:hover .vessel-tag-heading-deg {
+  color: #030712;
+}
+
 .vessel-tag-type-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   display: inline-block;
   box-shadow: 0 0 6px currentColor;
+}
+
+/* 3D Origin and Destination Port Markers */
+.port-scene-tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -100%);
+  background: rgba(10, 25, 45, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  z-index: 48;
+  user-select: none;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+
+.port-tag-origin {
+  border: 1px solid rgba(16, 185, 129, 0.75);
+  color: #6ee7b7;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+}
+
+.port-tag-dest {
+  border: 1px solid rgba(245, 158, 11, 0.75);
+  color: #fcd34d;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.4);
+}
+
+.port-scene-tag::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid rgba(10, 25, 45, 0.95);
 }
 
 /* ==========================================================================

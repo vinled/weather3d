@@ -46,6 +46,7 @@ class Windy3DApp {
     this.initLights();
     this.initWorld();
     this.initUI();
+    this.applyInitialLayerStates();
     this.updateLegend('wind');
 
     window.addEventListener('resize', () => this.onWindowResize());
@@ -417,9 +418,8 @@ class Windy3DApp {
 
     const toggleStates = document.getElementById('toggle-states');
     if (toggleStates) {
-      toggleStates.checked = true;
       if (this.terrain && this.terrain.stateBordersGroup) {
-        this.terrain.stateBordersGroup.visible = true;
+        this.terrain.stateBordersGroup.visible = toggleStates.checked;
       }
       toggleStates.addEventListener('change', (e) => {
         if (this.terrain && this.terrain.stateBordersGroup) {
@@ -524,6 +524,15 @@ class Windy3DApp {
           new THREE.Vector3(x, waterY + 12, z + 16),
           new THREE.Vector3(x, waterY + 0.5, z)
         );
+      });
+    }
+
+    const btnToggleVesselRoute = document.getElementById('btn-toggle-vessel-route');
+    if (btnToggleVesselRoute) {
+      btnToggleVesselRoute.addEventListener('click', () => {
+        if (this.ships) {
+          this.ships.toggleRouteVisible();
+        }
       });
     }
 
@@ -1181,6 +1190,87 @@ class Windy3DApp {
     el.style.display = 'flex';
     el.style.left = `${x}px`;
     el.style.top = `${y}px`;
+  }
+
+  applyInitialLayerStates() {
+    // 1. Cities 3D
+    const toggleCities = document.getElementById('toggle-cities');
+    const citiesOn = toggleCities ? toggleCities.checked : false;
+    if (this.cities && this.cities.cityGroup) {
+      this.cities.cityGroup.visible = citiesOn;
+    }
+    if (this.cityTags) {
+      this.cityTags.forEach(ct => {
+        ct.element.style.visibility = citiesOn ? 'visible' : 'hidden';
+      });
+    }
+
+    // 2. Vegetation 3D
+    const toggleTrees = document.getElementById('toggle-trees');
+    const treesOn = toggleTrees ? toggleTrees.checked : false;
+    if (this.vegetation && this.vegetation.vegGroup) {
+      this.vegetation.vegGroup.visible = treesOn;
+    }
+
+    // 3. States borders
+    const toggleStates = document.getElementById('toggle-states');
+    const statesOn = toggleStates ? toggleStates.checked : false;
+    if (this.terrain && this.terrain.stateBordersGroup) {
+      this.terrain.stateBordersGroup.visible = statesOn;
+    }
+
+    // 4. Synoptic Fronts
+    const toggleFronts = document.getElementById('toggle-fronts');
+    const frontsOn = toggleFronts ? toggleFronts.checked : false;
+    if (this.fronts) {
+      this.fronts.setVisible(frontsOn);
+    }
+
+    // 5. Amazon Flying Rivers
+    const toggleFlyingRivers = document.getElementById('toggle-flying-rivers');
+    const flyingRiversOn = toggleFlyingRivers ? toggleFlyingRivers.checked : false;
+    if (this.flyingRivers) {
+      this.flyingRivers.setVisible(flyingRiversOn);
+    }
+
+    // 6. Isobars
+    const toggleIsobars = document.getElementById('toggle-isobars');
+    const isobarsOn = toggleIsobars ? toggleIsobars.checked : false;
+    if (this.isobars) {
+      this.isobars.setVisible(isobarsOn);
+    }
+
+    // 7. Rivers 3D
+    const toggleRivers = document.getElementById('toggle-rivers');
+    const riversOn = toggleRivers ? toggleRivers.checked : false;
+    if (this.rivers) {
+      this.rivers.setVisible(riversOn);
+    }
+
+    // 8. Ships AIS (Starts OFF by default for max 60 FPS)
+    const toggleShips = document.getElementById('toggle-ships');
+    const shipsOn = toggleShips ? toggleShips.checked : false;
+    if (this.ships) {
+      this.ships.setVisible(shipsOn);
+    }
+    const topBadge = document.getElementById('vessels-top-badge');
+    if (topBadge) {
+      topBadge.classList.toggle('vessel-top-badge-disabled', !shipsOn);
+    }
+
+    // 9. Rain Radar Heatmap
+    const toggleRain = document.getElementById('toggle-rain-heatmap');
+    const rainOn = toggleRain ? toggleRain.checked : false;
+    if (this.weather && this.weather.layers && this.weather.layers.rain) {
+      this.weather.layers.rain.setHeatmapVisible(rainOn);
+    }
+
+    // 10. Wind Heatmap (Default ON)
+    const toggleWind = document.getElementById('toggle-wind-heatmap');
+    const windOn = toggleWind ? toggleWind.checked : true;
+    if (this.weather && this.weather.layers && this.weather.layers.wind) {
+      this.weather.layers.wind.setHeatmapVisible(windOn);
+    }
   }
 }
 

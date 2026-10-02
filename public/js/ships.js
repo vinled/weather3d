@@ -26,6 +26,16 @@ export class ShipTrafficSystem {
     this.selectedVessel = null;
     this.visible = true;
 
+    // 3D Voyage Nautical Route visualization group
+    this.routeGroup = new THREE.Group();
+    this.routeGroup.name = 'marinetraffic-voyage-route';
+    this.scene.add(this.routeGroup);
+
+    this.routeOriginTag = null;
+    this.routeDestTag = null;
+    this.activeRoute = null;
+    this.futureRouteLine = null;
+
     // Shared materials & geometries for high performance
     this.initSharedResources();
 
@@ -85,6 +95,20 @@ export class ShipTrafficSystem {
 
     this.beaconRingGeo = new THREE.RingGeometry(0.42, 0.65, 16);
     this.beaconRingGeo.rotateX(-Math.PI / 2);
+
+    // 6. Water Pinpoint Footprint & Directional Hull Polygon (Exact location on ocean)
+    const hullShape = new THREE.Shape();
+    hullShape.moveTo(0, -0.9);
+    hullShape.lineTo(0.35, -0.4);
+    hullShape.lineTo(0.35, 0.7);
+    hullShape.lineTo(-0.35, 0.7);
+    hullShape.lineTo(-0.35, -0.4);
+    hullShape.closePath();
+    this.waterHullGeo = new THREE.ShapeGeometry(hullShape);
+    this.waterHullGeo.rotateX(-Math.PI / 2);
+
+    this.waterRingGeo = new THREE.RingGeometry(0.75, 0.95, 24);
+    this.waterRingGeo.rotateX(-Math.PI / 2);
   }
 
   async fetchLiveVessels() {
@@ -121,10 +145,12 @@ export class ShipTrafficSystem {
         existing.speed = rawVessel.speed;
         existing.status = rawVessel.status;
 
-        // Update tag speed
+        // Update tag speed, heading arrow and degree
         const tagObj = this.vesselTags.get(rawVessel.mmsi);
-        if (tagObj && tagObj.speedEl) {
-          tagObj.speedEl.textContent = `${rawVessel.speed.toFixed(1)} kn`;
+        if (tagObj) {
+          if (tagObj.speedEl) tagObj.speedEl.textContent = `${rawVessel.speed.toFixed(1)} kn`;
+          if (tagObj.arrowEl) tagObj.arrowEl.style.transform = `rotate(${rawVessel.heading}deg)`;
+          if (tagObj.headingEl) tagObj.headingEl.textContent = `${rawVessel.heading}°`;
         }
       } else {
         // Create new 3D vessel object
@@ -137,8 +163,11 @@ export class ShipTrafficSystem {
         const tag = document.createElement('div');
         tag.className = 'vessel-scene-tag';
         tag.innerHTML = `
-          <span class="vessel-tag-type-dot" style="background:${typeColorHex}; box-shadow: 0 0 6px ${typeColorHex};"></span>
+          <span class="vessel-tag-dir-badge" style="background:${typeColorHex}; box-shadow: 0 0 6px ${typeColorHex};" title="Rumo: ${rawVessel.heading}°">
+            <span class="vessel-tag-arrow" style="transform: rotate(${rawVessel.heading}deg);">➤</span>
+          </span>
           <span class="vessel-tag-name">${rawVessel.name}</span>
+          <span class="vessel-tag-heading-deg">${rawVessel.heading}°</span>
           <span class="vessel-tag-speed">${rawVessel.speed.toFixed(1)} kn</span>
         `;
         tag.addEventListener('click', (e) => {
@@ -155,6 +184,8 @@ export class ShipTrafficSystem {
         this.uiContainer.appendChild(tag);
         this.vesselTags.set(rawVessel.mmsi, {
           element: tag,
+          arrowEl: tag.querySelector('.vessel-tag-arrow'),
+          headingEl: tag.querySelector('.vessel-tag-heading-deg'),
           speedEl: tag.querySelector('.vessel-tag-speed'),
           lastDisplay: 'flex'
         });
@@ -198,8 +229,49 @@ export class ShipTrafficSystem {
     this.buildShipGeometry(modelGroup, vessel);
     root.add(modelGroup);
 
-    // 3D Directional AIS Chevron (Forward-pointing arrow in vessel's heading)
+    // 1. Water Surface Radar Pinpoint Ring (Exact grounding footprint on the sea)
     const typeColor = this.getVesselTypeColor(vessel.type);
+    const waterRingMat = new THREE.MeshBasicMaterial({
+      color: typeColor,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthTest: false
+    });
+    const waterRing = new THREE.Mesh(this.waterRingGeo, waterRingMat);
+    waterRing.position.y = 0.005;
+    waterRing.renderOrder = 8;
+    root.add(waterRing);
+
+    // 2. Exact Directional Hull Footprint on Water (Pointing forward along -Z)
+    const waterHullMat = new THREE.MeshBasicMaterial({
+      color: typeColor,
+      transparent: true,
+      opacity: 0.95,
+      side: THREE.DoubleSide,
+      depthTest: false
+    });
+    const waterHull = new THREE.Mesh(this.waterHullGeo, waterHullMat);
+    waterHull.position.y = 0.007;
+    waterHull.renderOrder = 9;
+    root.add(waterHull);
+
+    // 3. Vertical Leader Pin (connects water footprint to 3D hull & floating tag)
+    const pinGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0.005, 0),
+      new THREE.Vector3(0, 1.35, 0)
+    ]);
+    const pinMat = new THREE.LineBasicMaterial({
+      color: typeColor,
+      transparent: true,
+      opacity: 0.65,
+      depthTest: false
+    });
+    const pinLine = new THREE.Line(pinGeo, pinMat);
+    pinLine.renderOrder = 8;
+    root.add(pinLine);
+
+    // 4. 3D Directional AIS Chevron (Forward-pointing arrow in vessel's heading)
     const chevronMat = new THREE.MeshBasicMaterial({
       color: typeColor,
       transparent: true,
@@ -211,7 +283,7 @@ export class ShipTrafficSystem {
     chevron.renderOrder = 9;
     root.add(chevron);
 
-    // Glowing AIS Beacon Ring around the chevron
+    // 5. Glowing AIS Beacon Ring around the chevron
     const beaconRingMat = new THREE.MeshBasicMaterial({
       color: typeColor,
       transparent: true,
@@ -253,6 +325,9 @@ export class ShipTrafficSystem {
       modelGroup,
       chevron,
       beaconRing,
+      waterRing,
+      waterHull,
+      pinLine,
       typeColor,
       wakeMesh,
       ring,
@@ -571,6 +646,18 @@ export class ShipTrafficSystem {
       v.modelGroup.scale.set(scale, scale, scale);
       v.hitbox.scale.set(scale, scale, scale);
 
+      // Water surface radar pinpoint & directional hull footprint scaling
+      if (v.waterRing) {
+        const ringPulse = 1.0 + Math.sin(time * 3.2 + mmsi) * 0.18;
+        v.waterRing.scale.set(scale * ringPulse, scale * ringPulse, scale * ringPulse);
+      }
+      if (v.waterHull) {
+        v.waterHull.scale.set(scale, scale, scale);
+      }
+      if (v.pinLine) {
+        v.pinLine.scale.set(scale, scale, scale);
+      }
+
       // 4. Dynamic Wake pulsation
       if (v.wakeMesh) {
         const isMoving = v.speed > 1.0;
@@ -602,7 +689,7 @@ export class ShipTrafficSystem {
       if (tagObj) {
         const shouldShow = this.visible && camDist < 95 && !!camera;
         if (shouldShow) {
-          tempV.set(v.currentX, v.root.position.y + 0.85 * scale, v.currentZ);
+          tempV.set(v.currentX, v.root.position.y + (1.35 * scale), v.currentZ);
           tempV.project(camera);
 
           // Within screen frustum
@@ -628,11 +715,56 @@ export class ShipTrafficSystem {
         }
       }
     }
+
+    // 8. Update active voyage route tags and animations
+    if (this.activeRoute && camera && this.routeGroup && this.routeGroup.visible) {
+      if (this.futureRouteLine && this.futureRouteLine.material) {
+        const pulse = 0.85 + Math.sin(time * 3.2) * 0.15;
+        this.futureRouteLine.material.opacity = pulse;
+      }
+
+      if (this.routeOriginTag && this.routeOriginTag.element) {
+        tempV.copy(this.routeOriginTag.pos);
+        tempV.y += 2.6;
+        tempV.project(camera);
+        if (tempV.z < 1) {
+          const sx = (tempV.x * widthHalf) + widthHalf;
+          const sy = -(tempV.y * heightHalf) + heightHalf;
+          this.routeOriginTag.element.style.transform = `translate3d(${sx}px, ${sy}px, 0)`;
+          this.routeOriginTag.element.style.display = 'flex';
+        } else {
+          this.routeOriginTag.element.style.display = 'none';
+        }
+      }
+
+      if (this.routeDestTag && this.routeDestTag.element) {
+        tempV.copy(this.routeDestTag.pos);
+        tempV.y += 2.6;
+        tempV.project(camera);
+        if (tempV.z < 1) {
+          const sx = (tempV.x * widthHalf) + widthHalf;
+          const sy = -(tempV.y * heightHalf) + heightHalf;
+          this.routeDestTag.element.style.transform = `translate3d(${sx}px, ${sy}px, 0)`;
+          this.routeDestTag.element.style.display = 'flex';
+        } else {
+          this.routeDestTag.element.style.display = 'none';
+        }
+      }
+    }
   }
 
   setVisible(visible) {
     this.visible = visible;
     this.group.visible = visible;
+    if (this.routeGroup) {
+      this.routeGroup.visible = visible;
+    }
+    if (this.routeOriginTag && this.routeOriginTag.element) {
+      this.routeOriginTag.element.style.display = visible ? 'flex' : 'none';
+    }
+    if (this.routeDestTag && this.routeDestTag.element) {
+      this.routeDestTag.element.style.display = visible ? 'flex' : 'none';
+    }
     if (this.vesselTags) {
       this.vesselTags.forEach(t => {
         t.element.style.display = visible ? t.lastDisplay : 'none';
@@ -641,6 +773,7 @@ export class ShipTrafficSystem {
     if (!visible) {
       if (this.hoveredVessel) this.setHoveredVessel(null, null);
       if (this.selectedVessel) this.selectVesselByMmsi(null);
+      this.clearVoyageRoute();
     }
   }
 
@@ -654,10 +787,12 @@ export class ShipTrafficSystem {
       this.selectedVessel = mmsi;
       const vessel = this.vessels.get(mmsi);
       vessel.ring.visible = true;
+      this.drawVoyageRoute(vessel.data);
       this.onSelectVessel(vessel.data);
       return vessel;
     } else {
       this.selectedVessel = null;
+      this.clearVoyageRoute();
       return null;
     }
   }
@@ -686,4 +821,358 @@ export class ShipTrafficSystem {
       this.onHoverVessel(null, null);
     }
   }
+
+  // --- VOYAGE NAUTICAL ROUTE SYSTEM (Origem -> Posição Atual -> Destino) ---
+
+  drawVoyageRoute(vessel) {
+    if (!vessel) return;
+    this.clearVoyageRoute();
+
+    const originCoords = this.getNauticalPortCoords(vessel.origin, vessel.baseLat, vessel.baseLon, -1);
+    const destCoords = this.getNauticalPortCoords(vessel.destination, vessel.baseLat, vessel.baseLon, 1);
+    const currentCoords = { lat: vessel.lat, lon: vessel.lon };
+
+    // Build intermediate coastal shipping lanes
+    const passedWaypoints = this.buildCoastalPath(originCoords, currentCoords);
+    const futureWaypoints = this.buildCoastalPath(currentCoords, destCoords);
+
+    // Convert to 3D points elevated at y = 0.084 (safely above ocean & weather layers)
+    const passed3D = passedWaypoints.map(pt => {
+      const { x, z } = latLonTo3D(pt.lat, pt.lon);
+      return new THREE.Vector3(x, 0.084, z);
+    });
+
+    const future3D = futureWaypoints.map(pt => {
+      const { x, z } = latLonTo3D(pt.lat, pt.lon);
+      return new THREE.Vector3(x, 0.084, z);
+    });
+
+    // 1. Render Passed Route (Solid Cyan / Emerald glowing line)
+    if (passed3D.length >= 2) {
+      let passedCurvePts = passed3D;
+      if (passed3D.length > 2) {
+        const curve = new THREE.CatmullRomCurve3(passed3D, false, 'centripetal');
+        passedCurvePts = curve.getPoints(Math.max(25, passed3D.length * 12));
+      }
+      const passedGeo = new THREE.BufferGeometry().setFromPoints(passedCurvePts);
+      const passedMat = new THREE.LineBasicMaterial({
+        color: 0x38bdf8,
+        linewidth: 3,
+        transparent: true,
+        opacity: 0.92,
+        depthTest: false
+      });
+      const passedLine = new THREE.Line(passedGeo, passedMat);
+      passedLine.renderOrder = 10;
+      this.routeGroup.add(passedLine);
+    }
+
+    // 2. Render Future Route (Pulsing Dashed Amber line)
+    if (future3D.length >= 2) {
+      let futureCurvePts = future3D;
+      if (future3D.length > 2) {
+        const curve = new THREE.CatmullRomCurve3(future3D, false, 'centripetal');
+        futureCurvePts = curve.getPoints(Math.max(30, future3D.length * 15));
+      }
+      const futureGeo = new THREE.BufferGeometry().setFromPoints(futureCurvePts);
+      const futureMat = new THREE.LineDashedMaterial({
+        color: 0xfbbf24,
+        linewidth: 3,
+        scale: 1,
+        dashSize: 1.0,
+        gapSize: 0.6,
+        transparent: true,
+        opacity: 0.95,
+        depthTest: false
+      });
+      const futureLine = new THREE.Line(futureGeo, futureMat);
+      futureLine.computeLineDistances();
+      futureLine.renderOrder = 10;
+      this.routeGroup.add(futureLine);
+      this.futureRouteLine = futureLine;
+    }
+
+    // 3. Origin 3D Marker & HTML Tag
+    const orig3D = passed3D[0];
+    const origMarker = this.createPortMarkerMesh(orig3D, 0x10b981);
+    this.routeGroup.add(origMarker);
+    this.createPortHTMLTag(orig3D, `🚩 Origem: ${originCoords.name}`, 'port-tag-origin', 'orig');
+
+    // 4. Destination 3D Marker & HTML Tag
+    const dest3D = future3D[future3D.length - 1];
+    const destMarker = this.createPortMarkerMesh(dest3D, 0xf59e0b);
+    this.routeGroup.add(destMarker);
+    this.createPortHTMLTag(dest3D, `🏁 Destino: ${destCoords.name}`, 'port-tag-dest', 'dest');
+
+    this.activeRoute = {
+      vessel,
+      orig3D,
+      dest3D,
+      originCoords,
+      destCoords
+    };
+
+    // Update button in vessel card if present
+    const btnRoute = document.getElementById('btn-toggle-vessel-route');
+    if (btnRoute) {
+      btnRoute.textContent = '🗺️ Ocultar Rota';
+      btnRoute.classList.add('route-active');
+    }
+  }
+
+  createPortMarkerMesh(pos, colorHex) {
+    const group = new THREE.Group();
+    group.position.copy(pos);
+
+    // Ground anchor ring
+    const ringGeo = new THREE.RingGeometry(0.6, 0.9, 16);
+    ringGeo.rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: 0.85,
+      side: THREE.DoubleSide,
+      depthTest: false
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    group.add(ring);
+
+    // Vertical beacon pole
+    const poleGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.2, 6);
+    poleGeo.translate(0, 1.1, 0);
+    const poleMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
+    const pole = new THREE.Mesh(poleGeo, poleMat);
+    group.add(pole);
+
+    // Glowing top beacon orb
+    const orbGeo = new THREE.SphereGeometry(0.35, 8, 8);
+    orbGeo.translate(0, 2.2, 0);
+    const orbMat = new THREE.MeshBasicMaterial({ color: colorHex, depthTest: false });
+    const orb = new THREE.Mesh(orbGeo, orbMat);
+    group.add(orb);
+
+    group.renderOrder = 10;
+    return group;
+  }
+
+  createPortHTMLTag(pos3D, text, extraClass, idKey) {
+    if (!this.uiContainer) this.uiContainer = document.getElementById('ui-container');
+    if (!this.uiContainer) return;
+
+    const el = document.createElement('div');
+    el.className = `port-scene-tag ${extraClass}`;
+    el.textContent = text;
+    this.uiContainer.appendChild(el);
+
+    if (idKey === 'orig') {
+      this.routeOriginTag = { element: el, pos: pos3D };
+    } else {
+      this.routeDestTag = { element: el, pos: pos3D };
+    }
+  }
+
+  clearVoyageRoute() {
+    if (this.routeOriginTag && this.routeOriginTag.element) {
+      this.routeOriginTag.element.remove();
+      this.routeOriginTag = null;
+    }
+    if (this.routeDestTag && this.routeDestTag.element) {
+      this.routeDestTag.element.remove();
+      this.routeDestTag = null;
+    }
+    // Cleanly dispose route group objects
+    while (this.routeGroup.children.length > 0) {
+      const obj = this.routeGroup.children[0];
+      this.routeGroup.remove(obj);
+      if (obj.geometry) obj.geometry.dispose();
+      if (obj.material) {
+        if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+        else obj.material.dispose();
+      }
+    }
+    this.activeRoute = null;
+    this.futureRouteLine = null;
+
+    const btnRoute = document.getElementById('btn-toggle-vessel-route');
+    if (btnRoute) {
+      btnRoute.textContent = '🗺️ Rota Náutica';
+      btnRoute.classList.remove('route-active');
+    }
+  }
+
+  toggleRouteVisible() {
+    if (this.activeRoute) {
+      const willBeVisible = !this.routeGroup.visible;
+      this.routeGroup.visible = willBeVisible;
+      if (this.routeOriginTag && this.routeOriginTag.element) {
+        this.routeOriginTag.element.style.display = willBeVisible ? 'flex' : 'none';
+      }
+      if (this.routeDestTag && this.routeDestTag.element) {
+        this.routeDestTag.element.style.display = willBeVisible ? 'flex' : 'none';
+      }
+
+      const btnRoute = document.getElementById('btn-toggle-vessel-route');
+      if (btnRoute) {
+        btnRoute.textContent = willBeVisible ? '🗺️ Ocultar Rota' : '🗺️ Ver Rota';
+        btnRoute.classList.toggle('route-active', willBeVisible);
+      }
+    } else if (this.selectedVessel && this.vessels.has(this.selectedVessel)) {
+      this.drawVoyageRoute(this.vessels.get(this.selectedVessel).data);
+    }
+  }
+
+  getNauticalPortCoords(portName, fallbackLat, fallbackLon, dir = 1) {
+    if (!portName || typeof portName !== 'string') {
+      return { lat: fallbackLat + dir * 0.8, lon: fallbackLon + dir * 0.8, name: 'Marítimo' };
+    }
+
+    const clean = portName.toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9 ]/g, ' ')
+      .trim();
+
+    for (const [key, val] of Object.entries(NAUTICAL_PORTS)) {
+      const normKey = key.toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+      if (clean.includes(normKey) || normKey.includes(clean)) {
+        return val;
+      }
+    }
+
+    return {
+      lat: fallbackLat + (dir * 0.8),
+      lon: fallbackLon + (dir * 0.8),
+      name: portName.split('(')[0].trim()
+    };
+  }
+
+  buildCoastalPath(from, to) {
+    if (!from || !to) return [];
+    const dLat = Math.abs(to.lat - from.lat);
+    const dLon = Math.abs(to.lon - from.lon);
+    const directDist = Math.sqrt(dLat * dLat + dLon * dLon);
+
+    // If points are very close (harbor, bay or tug maneuver), direct connection
+    if (directDist < 1.2) {
+      return [from, to];
+    }
+
+    // Find closest nodes in coastal chain
+    let fromIdx = 0, toIdx = 0;
+    let minFromDist = Infinity, minToDist = Infinity;
+
+    for (let i = 0; i < BRAZIL_COASTAL_CHAIN.length; i++) {
+      const n = BRAZIL_COASTAL_CHAIN[i];
+      const df = Math.hypot(n.lat - from.lat, n.lon - from.lon);
+      const dt = Math.hypot(n.lat - to.lat, n.lon - to.lon);
+      if (df < minFromDist) { minFromDist = df; fromIdx = i; }
+      if (dt < minToDist) { minToDist = dt; toIdx = i; }
+    }
+
+    const intermediate = [];
+    if (fromIdx < toIdx) {
+      for (let i = fromIdx; i <= toIdx; i++) {
+        intermediate.push(BRAZIL_COASTAL_CHAIN[i]);
+      }
+    } else if (fromIdx > toIdx) {
+      for (let i = fromIdx; i >= toIdx; i--) {
+        intermediate.push(BRAZIL_COASTAL_CHAIN[i]);
+      }
+    } else {
+      intermediate.push(BRAZIL_COASTAL_CHAIN[fromIdx]);
+    }
+
+    const rawPath = [from, ...intermediate, to];
+    // Filter duplicates or very close consecutive points (< 0.12 deg)
+    const cleanPath = [];
+    for (let i = 0; i < rawPath.length; i++) {
+      const p = rawPath[i];
+      if (cleanPath.length === 0) {
+        cleanPath.push(p);
+      } else {
+        const last = cleanPath[cleanPath.length - 1];
+        if (Math.hypot(p.lat - last.lat, p.lon - last.lon) > 0.12) {
+          cleanPath.push(p);
+        }
+      }
+    }
+
+    return cleanPath.length >= 2 ? cleanPath : [from, to];
+  }
 }
+
+// Comprehensive Nautical Ports Coordinates Map
+export const NAUTICAL_PORTS = {
+  'santos': { lat: -23.97, lon: -46.30, name: 'Santos (SP)' },
+  'btp': { lat: -23.96, lon: -46.31, name: 'Santos - BTP (SP)' },
+  'barra santos': { lat: -24.04, lon: -46.32, name: 'Barra de Santos' },
+  'canal de santos': { lat: -23.98, lon: -46.30, name: 'Canal de Santos' },
+  'rio de janeiro': { lat: -22.90, lon: -43.16, name: 'Rio de Janeiro (RJ)' },
+  'guanabara': { lat: -22.87, lon: -43.15, name: 'Baía de Guanabara' },
+  'pier maua': { lat: -22.89, lon: -43.18, name: 'Píer Mauá (RJ)' },
+  'ilha redonda': { lat: -22.84, lon: -43.14, name: 'Ilha Redonda (RJ)' },
+  'angra': { lat: -23.01, lon: -44.32, name: 'Angra dos Reis (RJ)' },
+  'macae': { lat: -22.38, lon: -41.77, name: 'Macaé (RJ)' },
+  'bacia de santos': { lat: -24.80, lon: -42.50, name: 'Bacia de Santos (Pré-Sal)' },
+  'carioca': { lat: -24.95, lon: -42.70, name: 'FPSO Carioca' },
+  'bacia de campos': { lat: -22.40, lon: -40.50, name: 'Bacia de Campos' },
+  'paranagua': { lat: -25.50, lon: -48.51, name: 'Paranaguá (PR)' },
+  'galheta': { lat: -25.58, lon: -48.32, name: 'Canal da Galheta (PR)' },
+  'itajaí': { lat: -26.91, lon: -48.65, name: 'Itajaí (SC)' },
+  'itajai': { lat: -26.91, lon: -48.65, name: 'Itajaí (SC)' },
+  'rio grande': { lat: -32.05, lon: -52.10, name: 'Rio Grande (RS)' },
+  'salvador': { lat: -12.96, lon: -38.51, name: 'Salvador (BA)' },
+  'baia de todos': { lat: -12.85, lon: -38.60, name: 'Baía de Todos os Santos' },
+  'ilheus': { lat: -14.79, lon: -39.02, name: 'Ilhéus (BA)' },
+  'suape': { lat: -8.39, lon: -34.96, name: 'Suape (PE)' },
+  'recife': { lat: -8.05, lon: -34.87, name: 'Recife (PE)' },
+  'abreu e lima': { lat: -8.41, lon: -34.98, name: 'Refinaria Abreu e Lima' },
+  'vitoria': { lat: -20.32, lon: -40.33, name: 'Vitória (ES)' },
+  'tubarao': { lat: -20.29, lon: -40.24, name: 'Porto de Tubarão (ES)' },
+  'itaqui': { lat: -2.57, lon: -44.36, name: 'Porto do Itaqui (MA)' },
+  'sao luis': { lat: -2.53, lon: -44.30, name: 'São Luís (MA)' },
+  'fortaleza': { lat: -3.72, lon: -38.47, name: 'Fortaleza (CE)' },
+  'mucuripe': { lat: -3.71, lon: -38.48, name: 'Porto do Mucuripe (CE)' },
+  'manaus': { lat: -3.14, lon: -60.02, name: 'Manaus (AM)' },
+  'chibatao': { lat: -3.15, lon: -59.95, name: 'Porto Chibatão (AM)' },
+  'belem': { lat: -1.45, lon: -48.50, name: 'Belém (PA)' },
+  'vila do conde': { lat: -1.54, lon: -48.75, name: 'Vila do Conde (PA)' },
+  'santarem': { lat: -2.43, lon: -54.71, name: 'Santarém (PA)' },
+  'buenos aires': { lat: -34.60, lon: -58.36, name: 'Buenos Aires (AR)' },
+  'montevideu': { lat: -34.90, lon: -56.20, name: 'Montevidéu (UY)' },
+  'roterda': { lat: 4.0, lon: -30.0, name: 'Roterdã (Atlântico N)' },
+  'rotterdam': { lat: 4.0, lon: -30.0, name: 'Roterdã (Atlântico N)' },
+  'antuerpia': { lat: 3.5, lon: -30.5, name: 'Antuérpia (Atlântico N)' },
+  'antwerp': { lat: 3.5, lon: -30.5, name: 'Antuérpia (Atlântico N)' },
+  'algeciras': { lat: 2.8, lon: -31.0, name: 'Algeciras (Atlântico N)' },
+  'cingapura': { lat: -26.0, lon: -32.0, name: 'Cingapura (Rota Transatlântica)' },
+  'singapore': { lat: -26.0, lon: -32.0, name: 'Cingapura (Rota Transatlântica)' },
+  'tianjin': { lat: -16.0, lon: -31.0, name: 'Tianjin (Rota Leste)' }
+};
+
+// Coastal Waypoints Chain along Brazilian Littoral & Amazon
+export const BRAZIL_COASTAL_CHAIN = [
+  { lat: -34.5, lon: -53.5 }, // Rio da Prata / UY
+  { lat: -32.2, lon: -51.2 }, // Rio Grande RS
+  { lat: -27.5, lon: -48.1 }, // SC / Itajaí
+  { lat: -25.6, lon: -47.8 }, // PR / Paranaguá
+  { lat: -24.4, lon: -45.8 }, // SP / Santos
+  { lat: -23.4, lon: -43.4 }, // RJ / Ilha Grande
+  { lat: -23.2, lon: -41.2 }, // RJ / Cabo Frio
+  { lat: -20.6, lon: -39.8 }, // ES / Vitória
+  { lat: -17.8, lon: -37.8 }, // BA / Abrolhos
+  { lat: -13.3, lon: -38.0 }, // BA / Salvador
+  { lat: -9.8,  lon: -35.2 }, // AL / Maceió
+  { lat: -8.4,  lon: -34.5 }, // PE / Suape
+  { lat: -5.4,  lon: -34.6 }, // RN / Natal
+  { lat: -3.2,  lon: -38.2 }, // CE / Fortaleza
+  { lat: -1.8,  lon: -43.8 }, // MA / Itaqui
+  { lat: -0.2,  lon: -47.5 }, // PA / Foz Amazonas
+  { lat: -1.8,  lon: -52.0 }, // PA / Rio Amazonas E
+  { lat: -2.3,  lon: -54.7 }, // PA / Santarém
+  { lat: -2.8,  lon: -58.2 }, // AM / Rio Amazonas O
+  { lat: -3.1,  lon: -59.9 }  // AM / Manaus
+];
+
