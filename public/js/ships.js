@@ -380,6 +380,12 @@ export class ShipTrafficSystem {
     this.raycastHitboxes.push(hitbox);
 
     // Initial heading rotation: Heading 0° is North (-Z)
+    // Decluttered: the single on-map ship icon is the marker; legacy beacons stay hidden
+    chevron.visible = false;
+    beaconRing.visible = false;
+    waterRing.visible = false;
+    waterHull.visible = false;
+    pinLine.visible = false;
     const rad = -(vessel.heading * Math.PI) / 180;
     root.rotation.y = rad;
 
@@ -652,6 +658,23 @@ export class ShipTrafficSystem {
     return mesh;
   }
 
+  _getUiBlockerRects() {
+    const now = performance.now();
+    if (this._blockerCache && now - this._blockerCacheTime < 500) return this._blockerCache;
+    const ids = ['layers-sidebar', 'city-card', 'vessel-card', 'bottom-bar'];
+    const rects = [];
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (!el || el.classList.contains('collapsed') || el.classList.contains('vessel-card-hidden') || el.classList.contains('city-card-hidden')) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 0) rects.push({ l: r.left, r: r.right, t: r.top, b: r.bottom });
+    }
+    rects.push({ l: 0, r: window.innerWidth, t: 0, b: 70 }); // top bar
+    this._blockerCache = rects;
+    this._blockerCacheTime = now;
+    return rects;
+  }
+
   update(delta, time, camera = null) {
     if (!this.visible) return;
 
@@ -664,6 +687,13 @@ export class ShipTrafficSystem {
     const tempV = this._tagProjectVec;
     const widthHalf = window.innerWidth / 2;
     const heightHalf = window.innerHeight / 2;
+    const labelCandidates = [];
+    const hideTag = (t) => {
+      if (t.lastDisplay !== 'none') {
+        t.element.style.display = 'none';
+        t.lastDisplay = 'none';
+      }
+    };
 
     for (const [mmsi, v] of this.vessels.entries()) {
       // 1. Advance along heading smoothly based on speed (knots = NM / hour)
@@ -703,85 +733,74 @@ export class ShipTrafficSystem {
       const targetRad = -(v.heading * Math.PI) / 180;
       v.root.rotation.y += (targetRad - v.root.rotation.y) * 0.08;
 
-      // 3. Camera distance & Adaptive Scaling (Zoom Visibility)
+      // 3. Camera distance & screen-constant icon scaling (clean, uncluttered markers)
       const camDist = camera ? camera.position.distanceTo(v.root.position) : 80;
-      // Close zoom (camDist < 30): scale = 1.3 - 1.8x
-      // Mid zoom (camDist 30 - 70): scale = 2.0 - 3.8x
-      // Far zoom (camDist > 70): scale = 4.0 - 5.2x
-      const scale = Math.max(1.3, Math.min(5.2, camDist * 0.050));
-      v.modelGroup.scale.set(scale, scale, scale);
-      v.hitbox.scale.set(scale, scale, scale);
+      const isFocused = (mmsi === this.selectedVessel || mmsi === this.hoveredVessel);
+      const iconScale = Math.max(0.35, Math.min(3.2, camDist * 0.026)) * (isFocused ? 1.35 : 1.0);
+      if (v.onMapIcon) v.onMapIcon.scale.set(iconScale, iconScale, iconScale);
+      v.hitbox.scale.set(iconScale, iconScale, iconScale);
 
-      // Water surface radar pinpoint & directional hull footprint scaling
-      if (v.waterRing) {
-        const ringPulse = 1.0 + Math.sin(time * 3.2 + mmsi) * 0.18;
-        v.waterRing.scale.set(scale * ringPulse, scale * ringPulse, scale * ringPulse);
+      // Detailed 3D hull only when really close; otherwise the flat icon is the marker
+      const show3D = camDist < 22;
+      v.modelGroup.visible = show3D;
+      if (show3D) {
+        const s = Math.max(0.9, camDist * 0.06);
+        v.modelGroup.scale.set(s, s, s);
       }
-      if (v.waterHull) {
-        v.waterHull.scale.set(scale, scale, scale);
-      }
-      if (v.onMapIcon) {
-        v.onMapIcon.scale.set(scale, scale, scale);
-      }
-      if (v.pinLine) {
-        v.pinLine.scale.set(scale, scale, scale);
-      }
-
-      // 4. Dynamic Wake pulsation
       if (v.wakeMesh) {
-        const isMoving = v.speed > 1.0;
-        v.wakeMesh.visible = isMoving;
-        if (isMoving) {
+        const moving = show3D && v.speed > 1.0;
+        v.wakeMesh.visible = moving;
+        if (moving) {
           const wakePulse = 0.95 + Math.sin(time * 3.5 + mmsi) * 0.15;
-          v.wakeMesh.scale.set(scale * wakePulse, 1, scale * wakePulse);
+          const s = Math.max(0.9, camDist * 0.06);
+          v.wakeMesh.scale.set(s * wakePulse, 1, s * wakePulse);
         }
       }
 
-      // 5. Directional Chevron & Beacon Visibility
-      if (v.chevron && v.beaconRing) {
-        // High-visibility beacon when zoomed out; smoothly fades to highlight detailed 3D hull when zoomed in
-        const chevronOpacity = Math.max(0.15, Math.min(1.0, (camDist - 25) / 45));
-        v.chevron.material.opacity = chevronOpacity;
-        v.beaconRing.material.opacity = chevronOpacity * 0.75;
-        const ringPulse = 1.0 + Math.sin(time * 3.2 + mmsi) * 0.22;
-        v.beaconRing.scale.set(ringPulse, ringPulse, ringPulse);
-      }
-
-      // 6. Selection ring pulse
+      // 4. Selection ring pulse
       if (v.ring && v.ring.visible) {
-        const ringPulse = 1.0 + Math.sin(time * 4.0) * 0.15;
-        v.ring.scale.set(scale * ringPulse, scale * ringPulse, scale * ringPulse);
+        const ringPulse = iconScale * (1.0 + Math.sin(time * 4.0) * 0.12);
+        v.ring.scale.set(ringPulse, ringPulse, ringPulse);
       }
 
-      // 7. Floating 2D/3D Vessel Scene Tag (Active when zoomed into a region: camDist < 95)
+      // 5. Collect label candidates (placed after the loop with collision culling)
       const tagObj = this.vesselTags ? this.vesselTags.get(mmsi) : null;
       if (tagObj) {
-        const shouldShow = this.visible && camDist < 95 && !!camera;
-        if (shouldShow) {
-          tempV.set(v.currentX, v.root.position.y + (1.35 * scale), v.currentZ);
+        let placed = false;
+        if (camera && (camDist < 60 || isFocused)) {
+          tempV.set(v.currentX, v.root.position.y, v.currentZ);
           tempV.project(camera);
-
-          // Within screen frustum
-          if (tempV.z < 1 && tempV.x >= -1.1 && tempV.x <= 1.1 && tempV.y >= -1.1 && tempV.y <= 1.1) {
-            const sx = (tempV.x * widthHalf) + widthHalf;
-            const sy = -(tempV.y * heightHalf) + heightHalf;
-            tagObj.element.style.transform = `translate3d(${sx}px, ${sy}px, 0)`;
-            if (tagObj.lastDisplay !== 'flex') {
-              tagObj.element.style.display = 'flex';
-              tagObj.lastDisplay = 'flex';
-            }
-          } else {
-            if (tagObj.lastDisplay !== 'none') {
-              tagObj.element.style.display = 'none';
-              tagObj.lastDisplay = 'none';
-            }
-          }
-        } else {
-          if (tagObj.lastDisplay !== 'none') {
-            tagObj.element.style.display = 'none';
-            tagObj.lastDisplay = 'none';
+          if (tempV.z < 1 && Math.abs(tempV.x) <= 1.0 && Math.abs(tempV.y) <= 1.0) {
+            labelCandidates.push({
+              tagObj,
+              sx: (tempV.x * widthHalf) + widthHalf,
+              sy: -(tempV.y * heightHalf) + heightHalf,
+              priority: isFocused ? 0 : camDist
+            });
+            placed = true;
           }
         }
+        if (!placed) hideTag(tagObj);
+      }
+    }
+
+    // 6. Label decluttering: closest / focused first, skip overlaps and UI panels
+    labelCandidates.sort((a, b) => a.priority - b.priority);
+    const placedBoxes = [];
+    const blockers = this._getUiBlockerRects();
+    const LABEL_W = 130, LABEL_H = 22;
+    for (const c of labelCandidates) {
+      const box = { l: c.sx - LABEL_W / 2, r: c.sx + LABEL_W / 2, t: c.sy + 10, b: c.sy + 10 + LABEL_H };
+      const overlaps = (o) => !(box.r < o.l || box.l > o.r || box.b < o.t || box.t > o.b);
+      if (c.priority !== 0 && (placedBoxes.some(overlaps) || blockers.some(overlaps) || placedBoxes.length >= 14)) {
+        hideTag(c.tagObj);
+        continue;
+      }
+      placedBoxes.push(box);
+      c.tagObj.element.style.transform = `translate3d(${c.sx.toFixed(1)}px, ${c.sy.toFixed(1)}px, 0)`;
+      if (c.tagObj.lastDisplay !== 'flex') {
+        c.tagObj.element.style.display = 'flex';
+        c.tagObj.lastDisplay = 'flex';
       }
     }
 

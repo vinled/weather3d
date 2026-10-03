@@ -1312,7 +1312,7 @@ input:checked + .slider:before {
   transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
   user-select: none;
-  z-index: 50;
+  z-index: 5;
 }
 
 .vessel-scene-tag:hover {
@@ -1363,8 +1363,9 @@ input:checked + .slider:before {
 /* OpenStreetMap Attribution Badge */
 .osm-attribution-badge {
   position: absolute;
-  bottom: 8px;
-  left: 24px;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 25;
   background: rgba(10, 25, 45, 0.85);
   backdrop-filter: blur(8px);
@@ -1412,7 +1413,7 @@ input:checked + .slider:before {
   gap: 5px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   white-space: nowrap;
-  z-index: 48;
+  z-index: 6;
   user-select: none;
   transition: opacity 0.2s ease, transform 0.15s ease;
 }

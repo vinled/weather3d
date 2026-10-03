@@ -110,15 +110,15 @@ export class OpenStreetMapSystem {
     const camDist = camera.position.distanceTo(controlsTarget);
 
     // Zoom transition thresholds:
-    // camDist > 85: 3D Macro relief (OSM 0% opacity)
-    // camDist 85 -> 22: Progressive crossfade from 3D mountains to OSM street grid
-    // camDist < 22: Full OSM street-level detail (100% opacity)
-    if (camDist > 85) {
+    // camDist > 110: 3D Macro relief (OSM 0% opacity)
+    // camDist 110 -> 40: Progressive crossfade from 3D mountains to OSM street grid
+    // camDist < 40: Full OSM street-level detail (100% opacity)
+    if (camDist > 110) {
       this.targetOpacity = 0.0;
-    } else if (camDist < 22) {
+    } else if (camDist < 40) {
       this.targetOpacity = 1.0;
     } else {
-      this.targetOpacity = (85 - camDist) / 63;
+      this.targetOpacity = (110 - camDist) / 70;
     }
 
     // Smooth opacity interpolation

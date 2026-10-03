@@ -140,6 +140,12 @@ export class WindLayer {
     this.group.visible = this.visible;
   }
 
+  // f = 0 (continental view) .. 1 (street-level OSM view): fade wind so map/cities stay readable
+  setMapFocus(f) {
+    if (this.heatmapMesh) this.heatmapMesh.material.opacity = 0.52 * (1.0 - 0.8 * f);
+    if (this.particles) this.particles.material.opacity = 0.82 * (1.0 - 0.6 * f);
+  }
+
   setHeatmapVisible(visible) {
     this.heatmapVisible = visible;
     if (this.heatmapMesh) {

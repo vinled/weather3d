@@ -69,10 +69,10 @@ class Windy3DApp {
     // 3. Renderer (balanced for 60fps on high-DPI displays)
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = false; // Perf: shadows disabled (major GPU cost, minimal visual gain at map scale)
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.container.appendChild(this.renderer.domElement);
 
@@ -94,7 +94,7 @@ class Windy3DApp {
     // Sunlight from northwest
     const sunLight = new THREE.DirectionalLight(0xfff7ed, 1.4);
     sunLight.position.set(-60, 90, -40);
-    sunLight.castShadow = true;
+    sunLight.castShadow = false;
     sunLight.shadow.mapSize.width = 1024;
     sunLight.shadow.mapSize.height = 1024;
     sunLight.shadow.camera.near = 10;
@@ -199,46 +199,51 @@ class Windy3DApp {
     const tempV = this._tagProjectVec;
     const widthHalf = window.innerWidth / 2;
     const heightHalf = window.innerHeight / 2;
+    const hide = (ct) => {
+      if (ct.lastDisplay !== 'none') {
+        ct.element.style.display = 'none';
+        ct.lastDisplay = 'none';
+      }
+    };
 
+    // Collect visible candidates, biggest cities first so they win label collisions
+    const candidates = [];
     this.cityTags.forEach(ct => {
       const m = ct.marker;
+      if (!m.isVisible) { hide(ct); return; }
 
-      // Dynamic Level of Detail (LOD) check: only show cities belonging to active zoom tier
-      if (!m.isVisible) {
-        if (ct.lastDisplay !== 'none') {
-          ct.element.style.display = 'none';
-          ct.lastDisplay = 'none';
-        }
-        return;
-      }
-
-      // Only update temperature text when value actually changes
       if (ct.lastTemp !== m.temp && ct.tempBadge) {
         ct.tempBadge.textContent = `${m.temp}°`;
         ct.lastTemp = m.temp;
       }
 
-      // Project 3D marker position to 2D screen coordinates
       tempV.copy(m.worldPos);
       tempV.project(this.camera);
-
-      // Check if in front of camera
-      if (tempV.z < 1) {
-        const x = (tempV.x * widthHalf) + widthHalf;
-        const y = -(tempV.y * heightHalf) + heightHalf;
-        // Use transform for GPU-composited positioning (no layout reflow)
-        ct.element.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-        if (ct.lastDisplay !== 'flex') {
-          ct.element.style.display = 'flex';
-          ct.lastDisplay = 'flex';
-        }
-      } else {
-        if (ct.lastDisplay !== 'none') {
-          ct.element.style.display = 'none';
-          ct.lastDisplay = 'none';
-        }
-      }
+      if (tempV.z >= 1 || Math.abs(tempV.x) > 1.05 || Math.abs(tempV.y) > 1.05) { hide(ct); return; }
+      candidates.push({
+        ct,
+        x: (tempV.x * widthHalf) + widthHalf,
+        y: -(tempV.y * heightHalf) + heightHalf,
+        rank: (m.city.tier || 1) * 1e9 - (m.city.pop || 0)
+      });
     });
+
+    candidates.sort((a, b) => a.rank - b.rank);
+    const blockers = this.ships ? this.ships._getUiBlockerRects() : [];
+    const placed = [];
+    const W = 120, H = 24;
+    for (const c of candidates) {
+      const box = { l: c.x - W / 2, r: c.x + W / 2, t: c.y - H, b: c.y };
+      const hit = (o) => !(box.r < o.l || box.l > o.r || box.b < o.t || box.t > o.b);
+      if (placed.some(hit) || blockers.some(hit)) { hide(c.ct); continue; }
+      placed.push(box);
+      // Keep the -50%/-100% anchor in the same transform (inline transform overrides CSS)
+      c.ct.element.style.transform = `translate3d(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+      if (c.ct.lastDisplay !== 'flex') {
+        c.ct.element.style.display = 'flex';
+        c.ct.lastDisplay = 'flex';
+      }
+    }
   }
 
   initUI() {
@@ -391,7 +396,7 @@ class Windy3DApp {
       toggleCities.addEventListener('change', (e) => {
         this.cities.cityGroup.visible = e.target.checked;
         this.cityTags.forEach(ct => {
-          ct.element.style.visibility = e.target.checked ? 'visible' : 'hidden';
+          ct.element.style.visibility = 'visible'; // City names always shown (orientation); toggle controls 3D buildings
         });
       });
     }
@@ -498,6 +503,9 @@ class Windy3DApp {
             if (this.cities) this.cities.setBuildingsFade(1.0);
             if (this.vegetation) this.vegetation.setVegetationFade(1.0);
             if (this.weather) this.weather.setElevationScale(1.0);
+            this._lastReliefFactor = 1.0;
+            const wind = this.weather && this.weather.layers && this.weather.layers.wind;
+            if (wind && wind.setMapFocus) wind.setMapFocus(0);
           }
         }
       });
@@ -1141,11 +1149,17 @@ class Windy3DApp {
     if (this.osmTiles) {
       const osmOpacity = this.osmTiles.update(this.camera, this.controls.target);
       // As OSM tiles fade in on zoom (0 -> 1), flatten 3D macro relief & fade out 3D buildings/trees (1 -> 0)
-      const relief3DFactor = Math.max(0.0, 1.0 - (osmOpacity * 0.96));
-      if (this.terrain) this.terrain.setReliefScale(relief3DFactor);
-      if (this.cities) this.cities.setBuildingsFade(relief3DFactor);
-      if (this.vegetation) this.vegetation.setVegetationFade(relief3DFactor);
-      if (this.weather) this.weather.setElevationScale(relief3DFactor);
+      const rawFactor = Math.max(0.0, 1.0 - (osmOpacity * 0.96));
+      const relief3DFactor = Math.round(rawFactor * 20) / 20; // quantized: avoids per-frame geometry rebuilds
+      if (relief3DFactor !== this._lastReliefFactor) {
+        this._lastReliefFactor = relief3DFactor;
+        if (this.terrain) this.terrain.setReliefScale(relief3DFactor);
+        if (this.cities) this.cities.setBuildingsFade(relief3DFactor);
+        if (this.vegetation) this.vegetation.setVegetationFade(relief3DFactor);
+        if (this.weather) this.weather.setElevationScale(relief3DFactor);
+        const wind = this.weather && this.weather.layers && this.weather.layers.wind;
+        if (wind && typeof wind.setMapFocus === 'function') wind.setMapFocus(1.0 - relief3DFactor);
+      }
     }
 
     // Update floating HTML tags
@@ -1233,7 +1247,7 @@ class Windy3DApp {
     }
     if (this.cityTags) {
       this.cityTags.forEach(ct => {
-        ct.element.style.visibility = citiesOn ? 'visible' : 'hidden';
+        ct.element.style.visibility = 'visible';
       });
     }
 
